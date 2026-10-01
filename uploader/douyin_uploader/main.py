@@ -638,10 +638,10 @@ class DouYinVideo(DouYinBaseUploader):
         productTitle="",
         thumbnail_portrait_path=None,
         desc: str | None = None,
-        collection_name: str | None = None,
         publish_strategy: str = DOUYIN_PUBLISH_STRATEGY_IMMEDIATE,
         debug: bool = DEBUG_MODE,
         headless: bool = LOCAL_CHROME_HEADLESS,
+        collection_name: str | None = None,
         declaration: str | None = None,
     ):
         super().__init__(
@@ -1050,7 +1050,18 @@ class DouYinVideo(DouYinBaseUploader):
         # 按平台合规如实选「内容由AI生成」（与转载等并列，单选，无二级选项、无需填来源）。
         if not self.declaration:
             self.declaration = "内容由AI生成"
-        await self.apply_self_declaration(page)
+        try:
+            await self.apply_self_declaration(page)
+        except Exception:
+            try:
+                await context.close()
+            except Exception:
+                pass
+            try:
+                await browser.close()
+            except Exception:
+                pass
+            raise
 
         # 先归集：此时尚未打开封面弹窗，避免 dy-creator-content-portal 封面浮层拦截合集下拉
         # （实测：封面弹窗在 headless 下常滞留"检测中"未关闭，会盖住"添加合集"下拉）
