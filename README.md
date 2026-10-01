@@ -121,6 +121,8 @@ AI的发展毋庸置疑，希望你遇到这种安装和使用，不要再怯场
 
 ### 补充说明：
 
+- Web 管理界面请看：[Web 管理界面说明](./docs/webui.md)
+- 局域网 AI Agent 调用发布 API 请看：[Agent 接入指南](./docs/agent-webui.md)
 - CLI 使用请看：[CLI 使用说明](./docs/CLI.md)
 - 如果你准备在 `OpenClaw`、`Codex`、`Claude Code / cc` 里使用本项目，先看：[Agent Bootstrap Prompt](./docs/agent-bootstrap.md)
 - agent / skill 请看：[Douyin Upload Skill](./skills/douyin-upload/SKILL.md)
@@ -166,6 +168,17 @@ Web 端相关代码仍然保留，但已经不是当前主线，不保证可直�
 
 
 ## 🏁快速开始
+
+### 方式 0：使用 Web 管理界面（局域网多人共用）
+
+在一台服务器上部署一次，团队其他成员用浏览器访问即可，无需各自安装环境：
+
+```bash
+uv pip install -e ".[webui]"
+sau-web        # 默认 0.0.0.0:8010，浏览器访问 http://<服务器IP>:8010
+```
+
+支持网页扫码登录、素材上传、发布任务与状态跟踪，详见 [Web 管理界面说明](./docs/webui.md)。
 
 ### 方式 1：使用 CLI
 
