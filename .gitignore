@@ -189,3 +189,6 @@ uploadFile
 videoFile
 
 /uploader/bilibili_uploader/qrcode.png
+
+# 代理出口 IP 预检的运行时状态（上传时自动生成）
+proxy_exit_state.json

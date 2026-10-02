@@ -10,13 +10,11 @@ from conf import LOCAL_CHROME_PATH, LOCAL_CHROME_HEADLESS
 from uploader.tk_uploader.tk_config import Tk_Locator
 from utils.base_social_media import set_init_script
 from utils.log import tiktok_logger
+from utils.network import get_platform_proxy
 
-# TikTok 在部分地区被墙：在 conf.py 设 TK_PROXY = "http://127.0.0.1:7890" 即可走代理；
-# 不设则直连。chromium 不吃系统代理，必须显式指定。
-try:
-    from conf import TK_PROXY
-except ImportError:
-    TK_PROXY = None
+# TikTok 在部分地区被墙：chromium 不吃系统代理，必须显式指定。
+# 代理解析统一走 get_platform_proxy("tiktok")：PROXY_MAP > TK_PROXY > DEFAULT_PROXY。
+_PROXY = get_platform_proxy("tiktok")
 
 LAUNCH_ARGS = ["--no-sandbox", "--disable-blink-features=AutomationControlled", "--lang en-GB"]
 
@@ -30,7 +28,7 @@ async def cookie_auth(account_file):
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(
                 headless=True, channel="chromium", args=LAUNCH_ARGS,
-                proxy={"server": TK_PROXY} if TK_PROXY else None,
+                proxy={"server": _PROXY} if _PROXY else None,
             )
             try:
                 context = await browser.new_context(storage_state=account_file)
@@ -82,7 +80,7 @@ async def get_tiktok_cookie(account_file, headless: bool = False):
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(
             headless=headless, channel="chromium", args=LAUNCH_ARGS,
-            proxy={"server": TK_PROXY} if TK_PROXY else None,
+            proxy={"server": _PROXY} if _PROXY else None,
         )
         try:
             context = await browser.new_context()
@@ -188,7 +186,7 @@ class TiktokVideo(object):
             executable_path=self.local_executable_path,
             channel=None if self.local_executable_path else "chromium",
             args=LAUNCH_ARGS,
-            proxy={"server": TK_PROXY} if TK_PROXY else None,
+            proxy={"server": _PROXY} if _PROXY else None,
         )
         context = await browser.new_context(storage_state=f"{self.account_file}")
         page = await context.new_page()

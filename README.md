@@ -244,16 +244,19 @@ sau x upload-video --account <account_name> --file videos/demo.mp4 --title "Capt
 ```
 
 > 海外平台（YouTube/TikTok/Instagram/Facebook/X）在被墙网络下需在 `conf.py` 配置代理：
-> 推荐 `DEFAULT_PROXY = "http://127.0.0.1:7890"` 一键全生效，或 `PROXY_MAP = {"instagram": "..."}` 按平台覆盖
+> 推荐 `DEFAULT_PROXY = "http://<代理机IP>:7890"` 一键全生效，或 `PROXY_MAP = {"instagram": "..."}` 按平台覆盖
 > （兼容旧的 `YT_PROXY` / `TK_PROXY`）。登录均为交互式（无二维码）：本地终端 `sau <平台> login` 后，
 > 通过 Web 管理台「上传 cookie」推送登录态即可在服务器发布。
+> 代理可用性：每次上传前会自动预检代理，不可用（连不上/节点失效 502）时任务立即失败并给出原因；
+> 出口 IP 相比上次上传发生变化会打 WARNING 日志（出口突变是账号风控的高危信号，建议固定节点），
+> 出口记录在 `proxy_exit_state.json`（勿提交）。Web 管理台仪表盘有「海外平台代理出口」卡片实时展示。
 
 > YouTube 说明：登录是交互式的（Google 账号，浏览器里完成，无二维码）。这里走浏览器自动化而不是官方 API，
 > 是因为**未通过 Google 合规审核的 API 项目上传的视频会被强制锁为私享、无法改公开**，对个人/单频道不实用；
 > 浏览器自动化没有此限制，可直接发布公开视频，也与本项目其它平台的 cookie 方案一致。
 > `--playlist` 适合连载/系列追更；`--visibility` 可选 `public`/`unlisted`/`private`。
 > 上传会**等进度到 100% 再点发布**（浏览器上传靠窗口开着传，传一半就发布会被掐断卡在中途）。
-> youtube.com 被墙的地区：在 `conf.py` 设 `YT_PROXY = "http://127.0.0.1:7890"`（chromium 不吃系统代理，需显式指定）。
+> youtube.com 被墙的地区：在 `conf.py` 设代理（`DEFAULT_PROXY` 或 `YT_PROXY`，chromium 不吃系统代理，需显式指定）。
 
 补充说明：
 

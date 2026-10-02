@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -14,9 +16,10 @@ from fastapi.responses import FileResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from conf import BASE_DIR
+from utils.network import check_proxy, get_platform_proxy, load_proxy_exit_state
 
 from . import __version__, media, registry
-from .registry import LOGIN_MODE_TERMINAL
+from .registry import LOGIN_MODE_TERMINAL, PublishPayloadError
 from .tasks import manager
 
 router = APIRouter(prefix="/api")
@@ -61,6 +64,64 @@ def get_meta() -> dict:
 @router.get("/health")
 def health() -> dict:
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# 代理状态（海外平台）
+# ---------------------------------------------------------------------------
+
+_PROXY_PLATFORMS = ("youtube", "tiktok", "instagram", "facebook", "x")
+_PROXY_STATUS_TTL = 60.0
+_proxy_status_cache: dict[str, Any] = {"data": None, "at": 0.0}
+
+
+@router.get("/proxy-status")
+def get_proxy_status(refresh: bool = Query(False)) -> dict:
+    """海外平台的代理解析 + 出口 IP 实测（60s 缓存，refresh=1 强制刷新）。
+
+    只读不落盘：出口 IP 只在上传预检（ensure_proxy_ready）时记录；
+    这里把实测出口与「上次上传记录的出口」对比，供前端提示漂移。
+    """
+    now = time.time()
+    cached = _proxy_status_cache["data"]
+    if cached is not None and not refresh and now - _proxy_status_cache["at"] < _PROXY_STATUS_TTL:
+        return cached
+
+    state = load_proxy_exit_state()
+    rows: list[dict[str, Any]] = []
+    futures: dict[str, Any] = {}
+    with ThreadPoolExecutor(max_workers=len(_PROXY_PLATFORMS)) as pool:
+        for platform in _PROXY_PLATFORMS:
+            proxy = get_platform_proxy(platform)
+            if not proxy:
+                rows.append({
+                    "platform": platform, "proxy": None, "ok": True,
+                    "exit_ip": None, "error": None,
+                    "last_upload_exit_ip": None, "differs_from_last_upload": False,
+                })
+                continue
+            futures[platform] = (proxy, pool.submit(check_proxy, proxy, 4.0))
+        for platform, (proxy, future) in futures.items():
+            result = future.result()
+            recorded = state.get(proxy, {}) if isinstance(state.get(proxy), dict) else {}
+            last_ip = recorded.get("exit_ip")
+            rows.append({
+                "platform": platform, "proxy": proxy, "ok": result.reachable,
+                "exit_ip": result.exit_ip, "error": result.error,
+                "last_upload_exit_ip": last_ip,
+                "differs_from_last_upload": bool(
+                    result.reachable and result.exit_ip and last_ip and result.exit_ip != last_ip
+                ),
+            })
+
+    data = {
+        "ok": True,
+        "checked_at": datetime.now().isoformat(timespec="seconds"),
+        "platforms": rows,
+    }
+    _proxy_status_cache["data"] = data
+    _proxy_status_cache["at"] = now
+    return data
 
 
 # ---------------------------------------------------------------------------

@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 
 from patchright.async_api import BrowserContext, Page, Playwright, async_playwright
+from utils.base_social_media import direct_chromium_launch
 
 from conf import BASE_DIR, LOCAL_CHROME_HEADLESS, LOCAL_CHROME_PATH
 from uploader.base_video import BaseVideoUploader
@@ -116,7 +117,7 @@ async def hupu_cookie_gen(account_file, qrcode_callback=None, poll_interval: int
     result = _build_login_result(False, "failed", "虎扑登录失败", account_file)
 
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(**_build_launch_kwargs(headless=headless))
+        browser = await direct_chromium_launch(playwright, **_build_launch_kwargs(headless=headless))
         context = await _create_stealth_context(browser)
         try:
             page = await _new_stealth_page(context)
@@ -243,7 +244,7 @@ async def cookie_auth(account_file):
     """验证虎扑 cookie 是否有效。访问发布页，检测是否能正常加载。"""
     account_file = _resolve_account_file(account_file)
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(**_build_launch_kwargs(headless=True))
+        browser = await direct_chromium_launch(playwright, **_build_launch_kwargs(headless=True))
         try:
             context = await _create_stealth_context(browser, account_file)
             page = await _new_stealth_page(context)
@@ -342,7 +343,7 @@ class HuPuVideo(BaseVideoUploader):
         await self.validate_upload_args()
         hupu_logger.info(_msg("🥳", "上传前检查通过"))
 
-        browser = await playwright.chromium.launch(**_build_launch_kwargs(headless=self.headless))
+        browser = await direct_chromium_launch(playwright, **_build_launch_kwargs(headless=self.headless))
         context = await _create_stealth_context(browser, self.account_file)
 
         try:

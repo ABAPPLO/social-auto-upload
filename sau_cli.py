@@ -86,6 +86,7 @@ from uploader.x_uploader.main import (
     cookie_auth as x_cookie_auth,
     x_setup,
 )
+from utils.network import ensure_proxy_ready
 
 SCHEDULE_FORMAT = "%Y-%m-%d %H:%M"
 
@@ -437,6 +438,7 @@ async def check_youtube_account(account_name: str) -> bool:
 
 
 async def upload_youtube_video(request: YouTubeVideoUploadRequest) -> Path:
+    await asyncio.to_thread(ensure_proxy_ready, "youtube")
     account_file = resolve_account_file("youtube", request.account_name)
     is_ready = await youtube_setup(str(account_file), handle=False)
     if not is_ready:
@@ -484,6 +486,7 @@ async def check_tiktok_account(account_name: str) -> bool:
 
 
 async def upload_tiktok_video(request: TiktokVideoUploadRequest) -> Path:
+    await asyncio.to_thread(ensure_proxy_ready, "tiktok")
     account_file = resolve_account_file("tiktok", request.account_name)
     is_ready = await tiktok_setup(str(account_file), handle=False)
     if not is_ready:
@@ -575,6 +578,7 @@ async def check_overseas_account(platform: str, account_name: str) -> bool:
 
 async def upload_overseas_video(request: OverseasVideoUploadRequest) -> Path:
     platform = request.platform
+    await asyncio.to_thread(ensure_proxy_ready, platform)
     account_file = resolve_account_file(platform, request.account_name)
     is_ready = await OVERSEAS_SETUPS[platform](str(account_file), handle=False)
     if not is_ready:

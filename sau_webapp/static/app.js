@@ -51,6 +51,7 @@ const app = createApp({
       routes: ROUTES,
       meta: { platforms: [], zones: { bilibili_tid: [], tencent_category: [] }, version: "" },
       stats: null,
+      proxyStatus: null,
       accounts: [],
       materials: [],
       tasks: [],
@@ -242,6 +243,14 @@ const app = createApp({
         this.renderCharts();
       } catch (e) {
         /* 静默 */
+      }
+    },
+
+    async loadProxyStatus(refresh = false) {
+      try {
+        this.proxyStatus = await this.api(`/api/proxy-status${refresh ? "?refresh=1" : ""}`);
+      } catch (e) {
+        /* 静默：仪表盘缺代理状态不影响其他功能 */
       }
     },
 
@@ -708,6 +717,7 @@ const app = createApp({
         this.loadMaterials();
         this.loadTasks();
         this.loadStats();
+        this.loadProxyStatus();
         nextTick(() => this.renderCharts());
       } else {
         this.disposeCharts();
@@ -732,15 +742,20 @@ const app = createApp({
     this.loadMaterials();
     this.loadTasks();
     this.loadStats();
+    this.loadProxyStatus();
     nextTick(() => this.renderCharts());
     this.tasksTimer = setInterval(() => {
       this.loadTasks();
       if (this.route === "dashboard") this.loadStats();
     }, 4000);
+    this.proxyTimer = setInterval(() => {
+      if (this.route === "dashboard") this.loadProxyStatus();
+    }, 60000);
   },
 
   beforeUnmount() {
     if (this.tasksTimer) clearInterval(this.tasksTimer);
+    if (this.proxyTimer) clearInterval(this.proxyTimer);
     this.stopLoginPolling();
     this.disposeCharts();
     window.removeEventListener("resize", this._onResize);
@@ -838,6 +853,49 @@ const app = createApp({
               </template>
             </el-table-column>
           </el-table>
+        </div>
+
+        <div class="card" v-if="proxyStatus">
+          <h3 class="card-title">🛡️ 海外平台代理出口
+            <el-button size="small" style="float:right;margin-top:-4px" @click="loadProxyStatus(true)">刷新</el-button>
+          </h3>
+          <el-table :data="proxyStatus.platforms" size="small">
+            <el-table-column label="平台" width="130">
+              <template #default="{ row }">
+                <span style="margin-right:6px">{{ platformIcon(row.platform) }}</span>{{ platformName(row.platform) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="代理" min-width="190">
+              <template #default="{ row }">
+                <span class="mono">{{ row.proxy || '未配置（直连）' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" width="170">
+              <template #default="{ row }">
+                <el-tag v-if="!row.proxy" type="info" size="small" effect="light">直连</el-tag>
+                <el-tag v-else-if="row.ok && row.exit_ip" type="success" size="small" effect="light">可用</el-tag>
+                <el-tag v-else-if="row.ok" type="warning" size="small" effect="light">可达 · 出口未知</el-tag>
+                <el-tag v-else type="danger" size="small" effect="dark">不可用</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="当前出口 IP" width="150">
+              <template #default="{ row }"><span class="mono">{{ row.exit_ip || '—' }}</span></template>
+            </el-table-column>
+            <el-table-column label="上次上传出口" width="150">
+              <template #default="{ row }"><span class="mono">{{ row.last_upload_exit_ip || '—' }}</span></template>
+            </el-table-column>
+            <el-table-column label="备注" min-width="220">
+              <template #default="{ row }">
+                <span v-if="row.differs_from_last_upload" style="color:#f56c6c">⚠ 出口与上次上传不同（账号风控风险，请固定代理节点）</span>
+                <span v-else-if="row.ok && row.proxy && !row.exit_ip" style="color:#e6a23c">{{ row.error }}</span>
+                <span v-else-if="!row.ok" style="color:#f56c6c">{{ row.error }}</span>
+                <span v-else style="color:#909399">—</span>
+              </template>
+            </el-table-column>
+          </el-table>
+          <p class="page-subtitle" style="margin:10px 0 0">
+            上传海外平台前会自动预检代理：不可用时任务立即失败并给出原因；出口 IP 突变会记录告警日志。检测时间 {{ proxyStatus.checked_at }}
+          </p>
         </div>
       </div>
 
