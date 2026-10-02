@@ -13,7 +13,7 @@ from patchright.async_api import async_playwright
 
 from conf import BASE_DIR, DEBUG_MODE, LOCAL_CHROME_HEADLESS, LOCAL_CHROME_PATH
 from uploader.base_video import BaseVideoUploader
-from utils.base_social_media import set_init_script
+from utils.base_social_media import direct_chromium_launch, new_browser_context, set_init_script
 from utils.login_qrcode import build_login_qrcode_path
 from utils.login_qrcode import decode_qrcode_from_path
 from utils.login_qrcode import print_terminal_qrcode
@@ -117,9 +117,9 @@ async def cookie_auth(account_file):
     launch_kwargs = {"headless": use_headless, "channel": "chromium", "args": ["--no-sandbox", "--disable-blink-features=AutomationControlled"]}
     for _attempt in range(3):
         async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(**launch_kwargs)
+            browser = await direct_chromium_launch(playwright, **launch_kwargs)
             try:
-                context = await browser.new_context(storage_state=account_file)
+                context = await new_browser_context(browser, storage_state=account_file)
                 context = await set_init_script(context)
                 page = await context.new_page()
                 await page.goto("https://creator.douyin.com/creator-micro/content/upload", wait_until="domcontentloaded", timeout=90000)
@@ -273,11 +273,11 @@ async def douyin_cookie_gen(
     async with async_playwright() as playwright:
         if cdp_url:
             browser = await playwright.chromium.connect_over_cdp(cdp_url)
-            context = browser.contexts[0] if browser.contexts else await browser.new_context()
+            context = browser.contexts[0] if browser.contexts else await new_browser_context(browser, )
             should_close_context = False
         else:
-            browser = await playwright.chromium.launch(headless=headless, channel="chromium")
-            context = await browser.new_context()
+            browser = await direct_chromium_launch(playwright, headless=headless, channel="chromium")
+            context = await new_browser_context(browser, )
             should_close_context = True
         context = await set_init_script(context)
         qrcode_path = None
@@ -638,10 +638,10 @@ class DouYinVideo(DouYinBaseUploader):
         productTitle="",
         thumbnail_portrait_path=None,
         desc: str | None = None,
-        collection_name: str | None = None,
         publish_strategy: str = DOUYIN_PUBLISH_STRATEGY_IMMEDIATE,
         debug: bool = DEBUG_MODE,
         headless: bool = LOCAL_CHROME_HEADLESS,
+        collection_name: str | None = None,
         declaration: str | None = None,
     ):
         super().__init__(
@@ -973,8 +973,8 @@ class DouYinVideo(DouYinBaseUploader):
         await self.validate_upload_args()
         douyin_logger.info(_msg("🥳", "上传前检查通过"))
 
-        browser = await playwright.chromium.launch(headless=self.headless, channel="chromium", args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
-        context = await browser.new_context(
+        browser = await direct_chromium_launch(playwright, headless=self.headless, channel="chromium", args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
+        context = await new_browser_context(browser, 
             storage_state=f"{self.account_file}",
             permissions=["geolocation"],
         )
@@ -1050,7 +1050,18 @@ class DouYinVideo(DouYinBaseUploader):
         # 按平台合规如实选「内容由AI生成」（与转载等并列，单选，无二级选项、无需填来源）。
         if not self.declaration:
             self.declaration = "内容由AI生成"
-        await self.apply_self_declaration(page)
+        try:
+            await self.apply_self_declaration(page)
+        except Exception:
+            try:
+                await context.close()
+            except Exception:
+                pass
+            try:
+                await browser.close()
+            except Exception:
+                pass
+            raise
 
         # 先归集：此时尚未打开封面弹窗，避免 dy-creator-content-portal 封面浮层拦截合集下拉
         # （实测：封面弹窗在 headless 下常滞留"检测中"未关闭，会盖住"添加合集"下拉）
@@ -1232,8 +1243,8 @@ class DouYinNote(DouYinBaseUploader):
         await self.validate_upload_args()
         douyin_logger.info(_msg("🥳", "图文上传前检查通过"))
 
-        browser = await playwright.chromium.launch(headless=self.headless, channel="chromium", args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
-        context = await browser.new_context(
+        browser = await direct_chromium_launch(playwright, headless=self.headless, channel="chromium", args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
+        context = await new_browser_context(browser, 
             storage_state=f"{self.account_file}",
             permissions=["geolocation"],
         )

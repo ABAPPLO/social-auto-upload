@@ -20,7 +20,8 @@ import re
 import time
 from pathlib import Path
 
-from playwright.async_api import Page, Playwright, TimeoutError as PWTimeoutError, async_playwright
+from patchright.async_api import Page, Playwright, TimeoutError as PWTimeoutError, async_playwright
+from utils.base_social_media import direct_chromium_launch, new_browser_context
 
 from conf import BASE_DIR, LOCAL_CHROME_HEADLESS, LOCAL_CHROME_PATH
 from uploader.base_video import BaseVideoUploader
@@ -165,8 +166,8 @@ async def weibo_cookie_gen(account_file, qrcode_callback=None, poll_interval: in
     result = _build_login_result(False, "failed", "微博登录失败", account_file)
 
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(**_build_launch_kwargs(headless=headless))
-        context = await browser.new_context()
+        browser = await direct_chromium_launch(playwright, **_build_launch_kwargs(headless=headless))
+        context = await new_browser_context(browser, )
         try:
             page = await context.new_page()
             # 直接导航到 passport 扫码登录页，绕过首页的"登录"按钮（headless 下不可见）
@@ -223,9 +224,9 @@ async def cookie_auth(account_file):
     """验证微博 cookie 是否有效。访问首页，检测是否出现登录提示。"""
     account_file = _resolve_account_file(account_file)
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(**_build_launch_kwargs(headless=True))
+        browser = await direct_chromium_launch(playwright, **_build_launch_kwargs(headless=True))
         try:
-            context = await browser.new_context(storage_state=account_file)
+            context = await new_browser_context(browser, storage_state=account_file)
             page = await context.new_page()
             await page.goto(WEIBO_HOME_URL, timeout=60000, wait_until="domcontentloaded")
             await page.wait_for_timeout(5000)
@@ -320,8 +321,8 @@ class WeiBoVideo(BaseVideoUploader):
         await self.validate_upload_args()
         weibo_logger.info(_msg("🥳", "上传前检查通过"))
 
-        browser = await playwright.chromium.launch(**_build_launch_kwargs(headless=self.headless))
-        context = await browser.new_context(
+        browser = await direct_chromium_launch(playwright, **_build_launch_kwargs(headless=self.headless))
+        context = await new_browser_context(browser, 
             storage_state=self.account_file,
             viewport={"width": 1280, "height": 2000},  # 高视口，确保发布按钮等在可视区
         )

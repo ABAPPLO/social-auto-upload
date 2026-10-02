@@ -18,15 +18,13 @@ from patchright.async_api import Page, Playwright, async_playwright
 
 from conf import DEBUG_MODE
 from uploader.base_video import BaseVideoUploader
-from utils.base_social_media import set_init_script
+from utils.base_social_media import set_init_script, new_browser_context
 from utils.log import youtube_logger
+from utils.network import get_platform_proxy
 
-try:
-    # 国内直连 youtube.com 会超时，且 patchright 启的 chromium 不吃系统代理。
-    # 在 conf.py 设 YT_PROXY = "http://127.0.0.1:7890"（本地代理端口）即可；不设则不走代理。
-    from conf import YT_PROXY
-except Exception:
-    YT_PROXY = None
+# 国内直连 youtube.com 会超时，且 patchright 启的 chromium 不吃系统代理。
+# 代理解析统一走 get_platform_proxy("youtube")：PROXY_MAP > YT_PROXY > DEFAULT_PROXY。
+_PROXY = get_platform_proxy("youtube")
 
 STUDIO_URL = "https://studio.youtube.com"
 UPLOAD_URL = "https://www.youtube.com/upload"
@@ -50,9 +48,12 @@ def _build_login_result(success, status, message, account_file, current_url=""):
 async def cookie_auth(account_file) -> bool:
     """登录态是否仍有效：带 cookie 打开 Studio，没被踢到 Google 登录页且进入了频道页即有效。"""
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=True, channel="chrome")
+        browser = await playwright.chromium.launch(
+            headless=True, channel="chrome",
+            proxy={"server": _PROXY} if _PROXY else None,
+        )
         try:
-            context = await browser.new_context(storage_state=account_file)
+            context = await new_browser_context(browser, storage_state=account_file)
             context = await set_init_script(context)
             page = await context.new_page()
             await page.goto(STUDIO_URL, wait_until="domcontentloaded")
@@ -71,8 +72,11 @@ async def youtube_cookie_gen(account_file, headless: bool = False):
     """交互式登录：开浏览器让用户登录 Google/YouTube，进入频道页后保存 storage_state。"""
     async with async_playwright() as playwright:
         # 登录必须显形，让用户输账号密码/二步验证
-        browser = await playwright.chromium.launch(headless=False, channel="chrome")
-        context = await browser.new_context()
+        browser = await playwright.chromium.launch(
+            headless=False, channel="chrome",
+            proxy={"server": _PROXY} if _PROXY else None,
+        )
+        context = await new_browser_context(browser, )
         context = await set_init_script(context)
         page = await context.new_page()
         await page.goto(STUDIO_URL, wait_until="domcontentloaded")
@@ -200,9 +204,9 @@ class YouTubeVideo(BaseVideoUploader):
     async def upload(self, playwright: Playwright) -> None:
         browser = await playwright.chromium.launch(
             headless=self.headless, channel="chrome",
-            proxy={"server": YT_PROXY} if YT_PROXY else None,
+            proxy={"server": _PROXY} if _PROXY else None,
         )
-        context = await browser.new_context(storage_state=self.account_file)
+        context = await new_browser_context(browser, storage_state=self.account_file)
         context = await set_init_script(context)
         page = await context.new_page()
         page.set_default_timeout(60000)

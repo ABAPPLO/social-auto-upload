@@ -13,7 +13,7 @@ from patchright.async_api import async_playwright
 
 from conf import DEBUG_MODE, LOCAL_CHROME_HEADLESS, LOCAL_CHROME_PATH
 from uploader.base_video import BaseVideoUploader
-from utils.base_social_media import set_init_script
+from utils.base_social_media import direct_chromium_launch, set_init_script, new_browser_context
 from utils.login_qrcode import build_login_qrcode_path
 from utils.login_qrcode import decode_qrcode_from_path
 from utils.login_qrcode import print_terminal_qrcode
@@ -180,11 +180,11 @@ async def cookie_auth(account_file):
 
     async with async_playwright() as playwright:
         if LOCAL_CHROME_PATH:
-            browser = await playwright.chromium.launch(headless=True, executable_path=LOCAL_CHROME_PATH)
+            browser = await direct_chromium_launch(playwright, headless=True, executable_path=LOCAL_CHROME_PATH)
         else:
-            browser = await playwright.chromium.launch(headless=True, channel="chromium")
+            browser = await direct_chromium_launch(playwright, headless=True, channel="chromium")
         try:
-            context = await browser.new_context(storage_state=account_file)
+            context = await new_browser_context(browser, storage_state=account_file)
             context = await set_init_script(context)
             page = await context.new_page()
             await page.goto(
@@ -253,8 +253,8 @@ async def xiaohongshu_cookie_gen(
     account_path.parent.mkdir(parents=True, exist_ok=True)
 
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=headless, channel="chromium")
-        context = await browser.new_context()
+        browser = await direct_chromium_launch(playwright, headless=headless, channel="chromium")
+        context = await new_browser_context(browser, )
         context = await set_init_script(context)
         qrcode_path = None
         qrcode_info = None
@@ -702,8 +702,8 @@ class XiaoHongShuVideo(XiaoHongShuBaseUploader):
         xiaohongshu_logger.info(_msg("🧍", "小人先检查 cookie、视频文件、封面和发布时间"))
         await self.validate_upload_args()
         xiaohongshu_logger.info(_msg("🥳", "上传前检查通过"))
-        browser = await playwright.chromium.launch(headless=self.headless, channel="chromium")
-        context = await browser.new_context(
+        browser = await direct_chromium_launch(playwright, headless=self.headless, channel="chromium")
+        context = await new_browser_context(browser, 
             permissions=["geolocation"],
             storage_state=self.account_file,
         )
@@ -825,8 +825,8 @@ class XiaoHongShuNote(XiaoHongShuBaseUploader):
         xiaohongshu_logger.info(_msg("🧍", "小人先检查 cookie、图片和发布时间"))
         await self.validate_upload_args()
         xiaohongshu_logger.info(_msg("🥳", "图文上传前检查通过"))
-        browser = await playwright.chromium.launch(headless=self.headless, channel="chromium")
-        context = await browser.new_context(
+        browser = await direct_chromium_launch(playwright, headless=self.headless, channel="chromium")
+        context = await new_browser_context(browser, 
             permissions=["geolocation"],
             storage_state=self.account_file,
         )

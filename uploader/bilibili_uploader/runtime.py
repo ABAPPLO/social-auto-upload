@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import platform
 import shutil
 import stat
@@ -175,11 +176,25 @@ def ensure_biliup_binary(force_check: bool = True) -> Path:
     return binary_path
 
 
+_PROXY_ENV_KEYS = ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
+
+
+def _biliup_env() -> dict[str, str]:
+    """B站是国内平台，上传必须直连：剥离 shell 里可能设置的代理环境变量，
+    避免 biliup 的 HTTP 客户端把上传流量送去代理出口（境外出口对国内平台是风控红旗）。
+    注意：仅清洗子进程环境；本模块自身用 requests 从 GitHub 下载 biliup 时仍走
+    调用方环境（被墙环境反而需要代理下载）。"""
+    env = dict(os.environ)
+    for key in _PROXY_ENV_KEYS:
+        env.pop(key, None)
+    return env
+
+
 def run_biliup_command(arguments: list[str], interactive: bool = False) -> subprocess.CompletedProcess[str]:
     binary_path = ensure_biliup_binary(force_check=False)
     command = [str(binary_path), *arguments]
     if interactive:
-        return subprocess.run(command, check=False)
+        return subprocess.run(command, check=False, env=_biliup_env())
     return subprocess.run(
         command,
         check=False,
@@ -187,4 +202,5 @@ def run_biliup_command(arguments: list[str], interactive: bool = False) -> subpr
         text=True,
         encoding="utf-8",
         errors="replace",
+        env=_biliup_env(),
     )
