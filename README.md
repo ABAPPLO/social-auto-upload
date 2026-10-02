@@ -81,7 +81,7 @@
 | 支付宝生活号 | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ | 浏览器自动化，支持生活号视频 |
 | 微博 | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ | 浏览器自动化，标题最多 30 字 |
 | 虎扑 | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ | 浏览器自动化，标题 4–40 字 |
-| TikTok | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | 当前示例走 Chrome 版实现 |
+| TikTok | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | 浏览器自动化（Studio），交互式登录（无二维码，可用网页上传cookie），被墙网络需配 `TK_PROXY` |
 | YouTube | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ | 浏览器自动化（Studio），支持加入播放列表/可见性 |
 
 ### AI这么强，为什么还需要这个项目
@@ -182,7 +182,7 @@ sau-web        # 默认 0.0.0.0:8010，浏览器访问 http://<服务器IP>:8010
 
 ### 方式 1：使用 CLI
 
-当前抖音、快手、小红书、Bilibili、视频号、百家号、支付宝生活号、微博和虎扑已经接入 CLI：
+当前抖音、快手、小红书、Bilibili、视频号、百家号、支付宝生活号、微博、虎扑、YouTube 和 TikTok 已经接入 CLI：
 
 ```bash
 sau douyin login --account <account_name>
@@ -227,6 +227,10 @@ sau hupu upload-video --account <account_name> --file videos/demo.mp4 --title "�
 sau youtube login --account <account_name>
 sau youtube check --account <account_name>
 sau youtube upload-video --account <account_name> --file videos/demo.mp4 --title "示例标题" --desc "示例简介" --tags tag1,tag2 --playlist "我的系列" --visibility public
+
+sau tiktok login --account <account_name>
+sau tiktok check --account <account_name>
+sau tiktok upload-video --account <account_name> --file videos/demo.mp4 --title "示例标题" --desc "示例简介" --tags tag1,tag2
 ```
 
 > YouTube 说明：登录是交互式的（Google 账号，浏览器里完成，无二维码）。这里走浏览器自动化而不是官方 API，

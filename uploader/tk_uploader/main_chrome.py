@@ -2,84 +2,120 @@
 import re
 from datetime import datetime
 
-from playwright.async_api import Playwright, async_playwright
+from patchright.async_api import Playwright, async_playwright
 import os
 import asyncio
 
 from conf import LOCAL_CHROME_PATH, LOCAL_CHROME_HEADLESS
 from uploader.tk_uploader.tk_config import Tk_Locator
 from utils.base_social_media import set_init_script
-from utils.files_times import get_absolute_path
 from utils.log import tiktok_logger
+
+# TikTok 在部分地区被墙：在 conf.py 设 TK_PROXY = "http://127.0.0.1:7890" 即可走代理；
+# 不设则直连。chromium 不吃系统代理，必须显式指定。
+try:
+    from conf import TK_PROXY
+except ImportError:
+    TK_PROXY = None
+
+LAUNCH_ARGS = ["--no-sandbox", "--disable-blink-features=AutomationControlled", "--lang en-GB"]
+
+
+def _build_login_result(success: bool, status: str, message: str, account_file: str) -> dict:
+    return {"success": success, "status": status, "message": message, "account_file": str(account_file)}
 
 
 async def cookie_auth(account_file):
-    async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=LOCAL_CHROME_HEADLESS)
-        context = await browser.new_context(storage_state=account_file)
-        context = await set_init_script(context)
-        # 创建一个新的页面
-        page = await context.new_page()
-        # 访问指定的 URL
-        await page.goto("https://www.tiktok.com/tiktokstudio/upload?lang=en")
-        await page.wait_for_load_state('networkidle')
-        try:
-            # 选择所有的 select 元素
-            select_elements = await page.query_selector_all('select')
-            for element in select_elements:
-                class_name = await element.get_attribute('class')
-                # 使用正则表达式匹配特定模式的 class 名称
-                if re.match(r'tiktok-.*-SelectFormContainer.*', class_name):
-                    tiktok_logger.error("[+] cookie expired")
-                    return False
-            tiktok_logger.success("[+] cookie valid")
-            return True
-        except:
-            tiktok_logger.success("[+] cookie valid")
-            return True
+    for _attempt in range(3):
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(
+                headless=True, channel="chromium", args=LAUNCH_ARGS,
+                proxy={"server": TK_PROXY} if TK_PROXY else None,
+            )
+            try:
+                context = await browser.new_context(storage_state=account_file)
+                context = await set_init_script(context)
+                page = await context.new_page()
+                await page.goto("https://www.tiktok.com/tiktokstudio/upload?lang=en",
+                                wait_until="domcontentloaded", timeout=90000)
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=15000)
+                except Exception:
+                    pass
+                try:
+                    select_elements = await page.query_selector_all("select")
+                    for element in select_elements:
+                        class_name = await element.get_attribute("class")
+                        if class_name and re.match(r"tiktok-.*-SelectFormContainer.*", class_name):
+                            tiktok_logger.error("[+] cookie expired")
+                            return False
+                    tiktok_logger.success("[+] cookie valid")
+                    return True
+                except Exception:
+                    tiktok_logger.success("[+] cookie valid")
+                    return True
+            except Exception:
+                pass
+            finally:
+                await browser.close()
+    return False
 
 
-async def tiktok_setup(account_file, handle=False):
-    account_file = get_absolute_path(account_file, "tk_uploader")
+async def tiktok_setup(account_file, handle=False, return_detail=False, qrcode_callback=None, headless: bool = False):
     if not os.path.exists(account_file) or not await cookie_auth(account_file):
         if not handle:
-            return False
-        tiktok_logger.info('[+] cookie file is not existed or expired. Now open the browser auto. Please login with your way(gmail phone, whatever, the cookie file will generated after login')
-        await get_tiktok_cookie(account_file)
-    return True
+            result = _build_login_result(False, "cookie_invalid", "cookie文件不存在或已失效", account_file)
+            return result if return_detail else False
+        result = await get_tiktok_cookie(account_file, headless=headless)
+        return result if return_detail else result["success"]
+
+    result = _build_login_result(True, "cookie_valid", "cookie有效", account_file)
+    return result if return_detail else True
 
 
-async def get_tiktok_cookie(account_file):
+async def get_tiktok_cookie(account_file, headless: bool = False):
+    """交互式登录：打开 TikTok 登录页（需要有显示器的环境），轮询 sessionid cookie 出现即保存。
+
+    无二维码回调——TikTok 登录方式多样（手机号/Google/二维码等），统一等用户自行完成。
+    服务器无显示器时：在本地电脑登录后通过「上传cookie」把 storage_state 推到服务器。
+    """
     async with async_playwright() as playwright:
-        options = {
-            'args': [
-                '--lang en-GB',
-            ],
-            'headless': LOCAL_CHROME_HEADLESS,  # Set headless option here
-        }
-        # Make sure to run headed.
-        browser = await playwright.chromium.launch(**options)
-        # Setup context however you like.
-        context = await browser.new_context()  # Pass any options
-        context = await set_init_script(context)
-        # Pause the page, and start recording manually.
-        page = await context.new_page()
-        await page.goto("https://www.tiktok.com/login?lang=en")
-        await page.pause()
-        # 点击调试器的继续，保存cookie
-        await context.storage_state(path=account_file)
+        browser = await playwright.chromium.launch(
+            headless=headless, channel="chromium", args=LAUNCH_ARGS,
+            proxy={"server": TK_PROXY} if TK_PROXY else None,
+        )
+        try:
+            context = await browser.new_context()
+            context = await set_init_script(context)
+            page = await context.new_page()
+            await page.goto("https://www.tiktok.com/login?lang=en", wait_until="domcontentloaded", timeout=90000)
+            tiktok_logger.info("[+] 请在打开的浏览器窗口里完成 TikTok 登录（最长等待 5 分钟）…")
+            for _ in range(150):
+                await asyncio.sleep(2)
+                cookies = await context.cookies()
+                if any(cookie["name"] == "sessionid" and cookie.get("value") for cookie in cookies):
+                    await context.storage_state(path=account_file)
+                    tiktok_logger.success("[+] 登录成功，cookie 已保存")
+                    return _build_login_result(True, "login_success", "登录成功，cookie已保存", account_file)
+            return _build_login_result(False, "login_timeout", "等待登录超时（5分钟），未检测到会话", account_file)
+        except Exception as exc:
+            return _build_login_result(False, "login_error", f"登录过程出错: {exc}", account_file)
+        finally:
+            await browser.close()
 
 
 class TiktokVideo(object):
-    def __init__(self, title, file_path, tags, publish_date, account_file, thumbnail_path=None):
+    def __init__(self, title, file_path, tags, publish_date, account_file, thumbnail_path=None,
+                 debug: bool = True, headless: bool = True):
         self.title = title
         self.file_path = file_path
         self.tags = tags
         self.publish_date = publish_date
         self.thumbnail_path = thumbnail_path
         self.account_file = account_file
-        self.local_executable_path = LOCAL_CHROME_PATH
-        self.headless = LOCAL_CHROME_HEADLESS
+        self.local_executable_path = LOCAL_CHROME_PATH or None
+        self.debug = debug
+        self.headless = headless
         self.locator_base = None
 
     async def set_schedule_time(self, page, publish_date):
@@ -147,9 +183,14 @@ class TiktokVideo(object):
         await file_chooser.set_files(self.file_path)
 
     async def upload(self, playwright: Playwright) -> None:
-        browser = await playwright.chromium.launch(headless=self.headless, executable_path=self.local_executable_path)
+        browser = await playwright.chromium.launch(
+            headless=self.headless,
+            executable_path=self.local_executable_path,
+            channel=None if self.local_executable_path else "chromium",
+            args=LAUNCH_ARGS,
+            proxy={"server": TK_PROXY} if TK_PROXY else None,
+        )
         context = await browser.new_context(storage_state=f"{self.account_file}")
-        # context = await set_init_script(context)
         page = await context.new_page()
 
         # change language to eng first

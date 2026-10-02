@@ -137,11 +137,9 @@ curl -X POST $BASE/api/tasks/<task_id>/verify-code -H "Content-Type: application
 
 验证码为 4-8 位数字；写入后发布流程自动继续，无需重试任务。网页端会自动弹出输入框。
 
-### 推送 cookie 文件（Bilibili / YouTube / 跨机迁移）
+### 推送 cookie 文件（TikTok / Bilibili / YouTube / 跨机迁移）
 
-8 个平台支持上述网页扫码；Bilibili（biliup 交互）和 YouTube（Google 交互式，无二维码）无法网页扫码，
-只能在**任意一台装了本项目的电脑**上终端执行 `sau bilibili login` / `sau youtube login`，
-然后把生成的 cookie 文件推送到服务器：
+9 个平台支持上述网页扫码；TikTok / Bilibili / YouTube 的登录无法网页化（交互式，无二维码），只能在**任意一台装了本项目的电脑**上终端执行 `sau bilibili login` / `sau youtube login` / `sau tiktok login`，然后把生成的 cookie 文件推送到服务器：
 
 ```bash
 curl -F "platform=bilibili" -F "account_name=main" \

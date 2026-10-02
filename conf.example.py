@@ -9,3 +9,5 @@ DEBUG_MODE = True  # default debug behavior
 # connections time out and the (patchright) chromium does NOT use the system proxy.
 # Point this at your local proxy port, e.g. "http://127.0.0.1:7890". None = no proxy.
 YT_PROXY = None
+# Same for TikTok where tiktok.com is blocked (TK_PROXY, e.g. "http://127.0.0.1:7890").
+TK_PROXY = None

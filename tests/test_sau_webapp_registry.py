@@ -147,6 +147,17 @@ class RegistryMappingTests(unittest.TestCase):
         self.assertEqual(request.visibility, "unlisted")
         self.assertEqual(request.playlist, "系列")
 
+    def test_tiktok_mapping_and_schedule(self):
+        future = (datetime.now() + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M")
+        payload = self._payload(platform="tiktok", publish_date=future)
+        fn, request = build_upload_request("tiktok", "video", payload, self.material_dir)
+        self.assertEqual(fn.__name__, "upload_tiktok_video")
+        from sau_cli import TiktokVideoUploadRequest
+
+        self.assertIsInstance(request, TiktokVideoUploadRequest)
+        self.assertIsInstance(request.publish_date, datetime)
+        self.assertEqual(request.description, "简介")
+
     def test_schedule_validation(self):
         past = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M")
         with self.assertRaises(PublishPayloadError):

@@ -162,6 +162,19 @@ PLATFORM_SPECS: dict[str, PlatformSpec] = {
         upload_video=sau_cli.upload_youtube_video,
         extra_fields=("visibility", "playlist"),
     ),
+    "tiktok": PlatformSpec(
+        key="tiktok",
+        name="TikTok",
+        login_mode=LOGIN_MODE_TERMINAL,
+        terminal_login_hint=(
+            "TikTok 登录是交互式流程（无二维码回调）：在装有本项目的本地电脑终端执行 "
+            "sau tiktok login --account <账号名>（弹出浏览器手动登录），然后把 cookies/tiktok_<账号名>.json "
+            "通过「上传cookie」推送到服务器。被墙网络需在服务器 conf.py 配置 TK_PROXY。"
+        ),
+        supports_schedule=True,
+        check=sau_cli.check_tiktok_account,
+        upload_video=sau_cli.upload_tiktok_video,
+    ),
 }
 
 
@@ -431,6 +444,17 @@ def build_upload_request(
                 thumbnail_file=thumbnail,
                 playlist=str(extras.get("playlist") or "").strip() or None,
                 visibility=visibility,
+                headless=headless,
+            )
+        elif platform == "tiktok":
+            request = sau_cli.TiktokVideoUploadRequest(
+                account_name=account_name,
+                video_file=video_file,
+                title=title,
+                description=desc,
+                tags=tags,
+                publish_date=publish_date,
+                thumbnail_file=thumbnail,
                 headless=headless,
             )
         else:  # pragma: no cover - 注册表受限，理论上不可达
