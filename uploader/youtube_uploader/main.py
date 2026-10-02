@@ -18,7 +18,7 @@ from patchright.async_api import Page, Playwright, async_playwright
 
 from conf import DEBUG_MODE
 from uploader.base_video import BaseVideoUploader
-from utils.base_social_media import set_init_script
+from utils.base_social_media import set_init_script, new_browser_context
 from utils.log import youtube_logger
 from utils.network import get_platform_proxy
 
@@ -53,7 +53,7 @@ async def cookie_auth(account_file) -> bool:
             proxy={"server": _PROXY} if _PROXY else None,
         )
         try:
-            context = await browser.new_context(storage_state=account_file)
+            context = await new_browser_context(browser, storage_state=account_file)
             context = await set_init_script(context)
             page = await context.new_page()
             await page.goto(STUDIO_URL, wait_until="domcontentloaded")
@@ -76,7 +76,7 @@ async def youtube_cookie_gen(account_file, headless: bool = False):
             headless=False, channel="chrome",
             proxy={"server": _PROXY} if _PROXY else None,
         )
-        context = await browser.new_context()
+        context = await new_browser_context(browser, )
         context = await set_init_script(context)
         page = await context.new_page()
         await page.goto(STUDIO_URL, wait_until="domcontentloaded")
@@ -206,7 +206,7 @@ class YouTubeVideo(BaseVideoUploader):
             headless=self.headless, channel="chrome",
             proxy={"server": _PROXY} if _PROXY else None,
         )
-        context = await browser.new_context(storage_state=self.account_file)
+        context = await new_browser_context(browser, storage_state=self.account_file)
         context = await set_init_script(context)
         page = await context.new_page()
         page.set_default_timeout(60000)
