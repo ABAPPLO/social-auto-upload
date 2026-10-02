@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 
 from patchright.async_api import BrowserContext, Page, Playwright, async_playwright
-from utils.base_social_media import direct_chromium_launch
+from utils.base_social_media import direct_chromium_launch, new_browser_context
 
 from conf import BASE_DIR, LOCAL_CHROME_HEADLESS, LOCAL_CHROME_PATH
 from uploader.base_video import BaseVideoUploader
@@ -95,7 +95,7 @@ async def _create_stealth_context(browser, account_file: str | None = None) -> B
     }
     if account_file and os.path.exists(account_file):
         kwargs["storage_state"] = account_file
-    context = await browser.new_context(**kwargs)
+    context = await new_browser_context(browser, **kwargs)
     return context
 
 

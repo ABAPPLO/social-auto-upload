@@ -13,7 +13,7 @@ from patchright.async_api import async_playwright
 
 from conf import DEBUG_MODE, LOCAL_CHROME_HEADLESS, LOCAL_CHROME_PATH
 from uploader.base_video import BaseVideoUploader
-from utils.base_social_media import direct_chromium_launch, set_init_script
+from utils.base_social_media import direct_chromium_launch, new_browser_context, set_init_script
 from utils.files_times import get_absolute_path
 from utils.login_qrcode import build_login_qrcode_path
 from utils.login_qrcode import decode_qrcode_from_path
@@ -228,7 +228,7 @@ async def cookie_auth(account_file):
         else:
             browser = await direct_chromium_launch(playwright, headless=True, channel="chromium")
         try:
-            context = await browser.new_context(storage_state=account_file)
+            context = await new_browser_context(browser, storage_state=account_file)
             context = await set_init_script(context)
             page = await context.new_page()
             await page.goto(KUAISHOU_UPLOAD_URL)
@@ -294,14 +294,14 @@ async def get_ks_cookie(
     async with async_playwright() as playwright:
         if cdp_url:
             browser = await playwright.chromium.connect_over_cdp(cdp_url)
-            context = browser.contexts[0] if browser.contexts else await browser.new_context()
+            context = browser.contexts[0] if browser.contexts else await new_browser_context(browser, )
             should_close_context = False
         else:
             if LOCAL_CHROME_PATH:
                 browser = await direct_chromium_launch(playwright, headless=headless, executable_path=LOCAL_CHROME_PATH)
             else:
                 browser = await direct_chromium_launch(playwright, headless=headless, channel="chromium")
-            context = await browser.new_context()
+            context = await new_browser_context(browser, )
             should_close_context = True
         context = await set_init_script(context)
         qrcode_path = None
@@ -630,7 +630,7 @@ class KSVideo(KSBaseUploader):
                 headless=self.headless,
                 channel="chromium",
             )
-        context = await browser.new_context(storage_state=self.account_file)
+        context = await new_browser_context(browser, storage_state=self.account_file)
         context = await set_init_script(context)
 
         upload_success = False
@@ -891,7 +891,7 @@ class KSNote(KSBaseUploader):
                 headless=self.headless,
                 channel="chromium",
             )
-        context = await browser.new_context(storage_state=self.account_file)
+        context = await new_browser_context(browser, storage_state=self.account_file)
         context = await set_init_script(context)
 
         upload_success = False

@@ -14,7 +14,7 @@ import os
 from patchright.async_api import Playwright, async_playwright
 
 from conf import LOCAL_CHROME_PATH
-from utils.base_social_media import set_init_script
+from utils.base_social_media import new_browser_context, set_init_script
 from utils.log import instagram_logger
 from utils.network import get_platform_proxy
 
@@ -66,7 +66,7 @@ async def cookie_auth(account_file):
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(**_launch_kwargs(headless=True))
             try:
-                context = await browser.new_context(storage_state=account_file)
+                context = await new_browser_context(browser, storage_state=account_file)
                 context = await set_init_script(context)
                 page = await context.new_page()
                 await page.goto("https://www.instagram.com/", wait_until="domcontentloaded", timeout=90000)
@@ -100,7 +100,7 @@ async def get_instagram_cookie(account_file, headless: bool = False):
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(**_launch_kwargs(headless=headless))
         try:
-            context = await browser.new_context()
+            context = await new_browser_context(browser, )
             context = await set_init_script(context)
             page = await context.new_page()
             await page.goto("https://www.instagram.com/accounts/login/", wait_until="domcontentloaded", timeout=90000)
@@ -145,7 +145,7 @@ class InstagramVideo:
 
     async def upload(self, playwright: Playwright) -> None:
         browser = await playwright.chromium.launch(**_launch_kwargs(headless=self.headless))
-        context = await browser.new_context(storage_state=self.account_file)
+        context = await new_browser_context(browser, storage_state=self.account_file)
         page = await context.new_page()
 
         instagram_logger.info(f"[+] 开始上传: {self.title}")

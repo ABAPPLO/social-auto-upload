@@ -333,5 +333,74 @@ class BiliupEnvScrubTests(unittest.TestCase):
         mock_run.assert_called_once()
 
 
+class NewBrowserContextTests(unittest.TestCase):
+    """所有平台统一伪装 Windows Chrome UA（版本号取自真实浏览器）。"""
+
+    def _fake_inner_context(self):
+        context = MagicMock()
+        page = MagicMock()
+        context.new_page = AsyncMock(return_value=page)
+        cdp = MagicMock()
+        cdp.send = AsyncMock()
+        context.new_cdp_session = AsyncMock(return_value=cdp)
+        return context, page, cdp
+
+    def _fake_browser(self, version="140.0.7339.14"):
+        browser = MagicMock()
+        browser.version = version
+        inner, page, cdp = self._fake_inner_context()
+        browser.new_context = AsyncMock(return_value=inner)
+        return browser, inner, page, cdp
+
+    def test_windows_ua_and_cdp_platform_override(self):
+        from utils.base_social_media import new_browser_context
+
+        browser, inner, page, cdp = self._fake_browser()
+        context = asyncio.run(new_browser_context(browser, storage_state="cookies.json"))
+        # UA 传给了 new_context（决定 HTTP 层与 navigator.userAgent）
+        kwargs = browser.new_context.await_args.kwargs
+        self.assertIn("Windows NT 10.0; Win64; x64", kwargs["user_agent"])
+        self.assertIn("Chrome/140.0.7339.14", kwargs["user_agent"])
+        self.assertEqual(kwargs["storage_state"], "cookies.json")
+        # 每个新页面还叠加 CDP 原生 platform 覆盖
+        result_page = asyncio.run(context.new_page())
+        self.assertIs(result_page, page)
+        cdp.send.assert_awaited_once()
+        cmd, params = cdp.send.await_args.args
+        self.assertEqual(cmd, "Emulation.setUserAgentOverride")
+        self.assertEqual(params["platform"], "Win32")
+
+    def test_explicit_user_agent_not_overridden(self):
+        from utils.base_social_media import new_browser_context
+
+        browser, inner, _, cdp = self._fake_browser()
+        context = asyncio.run(new_browser_context(browser, user_agent="custom-ua"))
+        self.assertEqual(browser.new_context.await_args.kwargs["user_agent"], "custom-ua")
+        asyncio.run(context.new_page())
+        self.assertEqual(cdp.send.await_args.kwargs if cdp.send.await_args.kwargs
+                         else cdp.send.await_args.args[1]["userAgent"], "custom-ua")
+
+    def test_unreadable_version_skips_ua_and_wrapper(self):
+        # MagicMock 假浏览器树（现有测试模式）拿不到字符串版本号时静默跳过，
+        # 返回原始 context 不包装，保证旧测试的 fake 树行为不变。
+        from utils.base_social_media import new_browser_context
+
+        browser = MagicMock()
+        inner = MagicMock()
+        browser.new_context = AsyncMock(return_value=inner)
+        context = asyncio.run(new_browser_context(browser))
+        self.assertIs(context, inner)
+        self.assertNotIn("user_agent", browser.new_context.await_args.kwargs)
+
+    def test_cdp_failure_falls_back_gracefully(self):
+        from utils.base_social_media import new_browser_context
+
+        browser, inner, page, cdp = self._fake_browser()
+        cdp.send = AsyncMock(side_effect=RuntimeError("cdp unavailable"))
+        context = asyncio.run(new_browser_context(browser))
+        result_page = asyncio.run(context.new_page())
+        self.assertIs(result_page, page)  # 覆盖失败不影响页面返回
+
+
 if __name__ == "__main__":
     unittest.main()

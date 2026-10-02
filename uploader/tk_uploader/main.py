@@ -6,7 +6,7 @@ from playwright.async_api import Playwright, async_playwright
 import os
 import asyncio
 from uploader.tk_uploader.tk_config import Tk_Locator
-from utils.base_social_media import set_init_script
+from utils.base_social_media import new_browser_context, set_init_script
 from utils.files_times import get_absolute_path
 from utils.log import tiktok_logger
 from conf import LOCAL_CHROME_HEADLESS
@@ -15,7 +15,7 @@ from conf import LOCAL_CHROME_HEADLESS
 async def cookie_auth(account_file):
     async with async_playwright() as playwright:
         browser = await playwright.firefox.launch(headless=LOCAL_CHROME_HEADLESS)
-        context = await browser.new_context(storage_state=account_file)
+        context = await new_browser_context(browser, storage_state=account_file)
         context = await set_init_script(context)
         # 创建一个新的页面
         page = await context.new_page()
@@ -59,7 +59,7 @@ async def get_tiktok_cookie(account_file):
         # Make sure to run headed.
         browser = await playwright.firefox.launch(**options)
         # Setup context however you like.
-        context = await browser.new_context()  # Pass any options
+        context = await new_browser_context(browser, )  # Pass any options
         context = await set_init_script(context)
         # Pause the page, and start recording manually.
         page = await context.new_page()
@@ -143,7 +143,7 @@ class TiktokVideo(object):
 
     async def upload(self, playwright: Playwright) -> None:
         browser = await playwright.firefox.launch(headless=self.headless)
-        context = await browser.new_context(storage_state=f"{self.account_file}")
+        context = await new_browser_context(browser, storage_state=f"{self.account_file}")
         context = await set_init_script(context)
         page = await context.new_page()
 

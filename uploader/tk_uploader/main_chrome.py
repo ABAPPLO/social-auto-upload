@@ -8,7 +8,7 @@ import asyncio
 
 from conf import LOCAL_CHROME_PATH, LOCAL_CHROME_HEADLESS
 from uploader.tk_uploader.tk_config import Tk_Locator
-from utils.base_social_media import set_init_script
+from utils.base_social_media import new_browser_context, set_init_script
 from utils.log import tiktok_logger
 from utils.network import get_platform_proxy
 
@@ -31,7 +31,7 @@ async def cookie_auth(account_file):
                 proxy={"server": _PROXY} if _PROXY else None,
             )
             try:
-                context = await browser.new_context(storage_state=account_file)
+                context = await new_browser_context(browser, storage_state=account_file)
                 context = await set_init_script(context)
                 page = await context.new_page()
                 await page.goto("https://www.tiktok.com/tiktokstudio/upload?lang=en",
@@ -83,7 +83,7 @@ async def get_tiktok_cookie(account_file, headless: bool = False):
             proxy={"server": _PROXY} if _PROXY else None,
         )
         try:
-            context = await browser.new_context()
+            context = await new_browser_context(browser, )
             context = await set_init_script(context)
             page = await context.new_page()
             await page.goto("https://www.tiktok.com/login?lang=en", wait_until="domcontentloaded", timeout=90000)
@@ -188,7 +188,7 @@ class TiktokVideo(object):
             args=LAUNCH_ARGS,
             proxy={"server": _PROXY} if _PROXY else None,
         )
-        context = await browser.new_context(storage_state=f"{self.account_file}")
+        context = await new_browser_context(browser, storage_state=f"{self.account_file}")
         page = await context.new_page()
 
         # change language to eng first

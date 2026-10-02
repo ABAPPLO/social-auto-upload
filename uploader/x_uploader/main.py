@@ -15,7 +15,7 @@ import os
 from patchright.async_api import Playwright, async_playwright
 
 from conf import LOCAL_CHROME_PATH
-from utils.base_social_media import set_init_script
+from utils.base_social_media import set_init_script, new_browser_context
 from utils.log import x_logger
 from utils.network import get_platform_proxy
 
@@ -65,7 +65,7 @@ async def cookie_auth(account_file):
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(**_launch_kwargs(headless=True))
             try:
-                context = await browser.new_context(storage_state=account_file)
+                context = await new_browser_context(browser, storage_state=account_file)
                 context = await set_init_script(context)
                 page = await context.new_page()
                 await page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=90000)
@@ -99,7 +99,7 @@ async def get_x_cookie(account_file, headless: bool = False):
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(**_launch_kwargs(headless=headless))
         try:
-            context = await browser.new_context()
+            context = await new_browser_context(browser, )
             context = await set_init_script(context)
             page = await context.new_page()
             await page.goto("https://x.com/login", wait_until="domcontentloaded", timeout=90000)
@@ -129,7 +129,7 @@ class XPost:
 
     async def upload(self, playwright: Playwright) -> None:
         browser = await playwright.chromium.launch(**_launch_kwargs(headless=self.headless))
-        context = await browser.new_context(storage_state=self.account_file)
+        context = await new_browser_context(browser, storage_state=self.account_file)
         page = await context.new_page()
 
         x_logger.info(f"[+] 开始发帖: {self.title}")

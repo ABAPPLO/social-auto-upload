@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 from patchright.async_api import Page, Playwright, TimeoutError as PWTimeoutError, async_playwright
-from utils.base_social_media import direct_chromium_launch
+from utils.base_social_media import direct_chromium_launch, new_browser_context
 
 from conf import BASE_DIR, LOCAL_CHROME_HEADLESS, LOCAL_CHROME_PATH
 from uploader.base_video import BaseVideoUploader
@@ -131,7 +131,7 @@ async def baijiahao_cookie_gen(account_file, qrcode_callback=None, poll_interval
 
     async with async_playwright() as playwright:
         browser = await direct_chromium_launch(playwright, **_build_launch_kwargs(headless=headless))
-        context = await browser.new_context()
+        context = await new_browser_context(browser, )
         try:
             page = await context.new_page()
             await page.goto(BAIJIAHAO_LOGIN_URL, timeout=60000, wait_until="domcontentloaded")
@@ -190,7 +190,7 @@ async def cookie_auth(account_file):
     async with async_playwright() as playwright:
         browser = await direct_chromium_launch(playwright, **_build_launch_kwargs(headless=True))
         try:
-            context = await browser.new_context(storage_state=account_file)
+            context = await new_browser_context(browser, storage_state=account_file)
             page = await context.new_page()
             await page.goto(BAIJIAHAO_HOME_URL, timeout=60000, wait_until="domcontentloaded")
             await page.wait_for_timeout(5000)
@@ -273,7 +273,7 @@ class BaiJiaHaoVideo(BaseVideoUploader):
         baijiahao_logger.info(_msg("🥳", "上传前检查通过"))
 
         browser = await direct_chromium_launch(playwright, **_build_launch_kwargs(headless=self.headless))
-        context = await browser.new_context(storage_state=self.account_file)
+        context = await new_browser_context(browser, storage_state=self.account_file)
         await context.grant_permissions(["geolocation"])
 
         try:

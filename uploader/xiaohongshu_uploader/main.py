@@ -13,7 +13,7 @@ from patchright.async_api import async_playwright
 
 from conf import DEBUG_MODE, LOCAL_CHROME_HEADLESS, LOCAL_CHROME_PATH
 from uploader.base_video import BaseVideoUploader
-from utils.base_social_media import direct_chromium_launch, set_init_script
+from utils.base_social_media import direct_chromium_launch, set_init_script, new_browser_context
 from utils.login_qrcode import build_login_qrcode_path
 from utils.login_qrcode import decode_qrcode_from_path
 from utils.login_qrcode import print_terminal_qrcode
@@ -184,7 +184,7 @@ async def cookie_auth(account_file):
         else:
             browser = await direct_chromium_launch(playwright, headless=True, channel="chromium")
         try:
-            context = await browser.new_context(storage_state=account_file)
+            context = await new_browser_context(browser, storage_state=account_file)
             context = await set_init_script(context)
             page = await context.new_page()
             await page.goto(
@@ -254,7 +254,7 @@ async def xiaohongshu_cookie_gen(
 
     async with async_playwright() as playwright:
         browser = await direct_chromium_launch(playwright, headless=headless, channel="chromium")
-        context = await browser.new_context()
+        context = await new_browser_context(browser, )
         context = await set_init_script(context)
         qrcode_path = None
         qrcode_info = None
@@ -703,7 +703,7 @@ class XiaoHongShuVideo(XiaoHongShuBaseUploader):
         await self.validate_upload_args()
         xiaohongshu_logger.info(_msg("🥳", "上传前检查通过"))
         browser = await direct_chromium_launch(playwright, headless=self.headless, channel="chromium")
-        context = await browser.new_context(
+        context = await new_browser_context(browser, 
             permissions=["geolocation"],
             storage_state=self.account_file,
         )
@@ -826,7 +826,7 @@ class XiaoHongShuNote(XiaoHongShuBaseUploader):
         await self.validate_upload_args()
         xiaohongshu_logger.info(_msg("🥳", "图文上传前检查通过"))
         browser = await direct_chromium_launch(playwright, headless=self.headless, channel="chromium")
-        context = await browser.new_context(
+        context = await new_browser_context(browser, 
             permissions=["geolocation"],
             storage_state=self.account_file,
         )

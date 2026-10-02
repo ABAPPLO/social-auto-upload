@@ -13,7 +13,7 @@ from patchright.async_api import async_playwright
 
 from conf import BASE_DIR, DEBUG_MODE, LOCAL_CHROME_HEADLESS, LOCAL_CHROME_PATH
 from uploader.base_video import BaseVideoUploader
-from utils.base_social_media import direct_chromium_launch, set_init_script
+from utils.base_social_media import direct_chromium_launch, new_browser_context, set_init_script
 from utils.login_qrcode import build_login_qrcode_path
 from utils.login_qrcode import decode_qrcode_from_path
 from utils.login_qrcode import print_terminal_qrcode
@@ -119,7 +119,7 @@ async def cookie_auth(account_file):
         async with async_playwright() as playwright:
             browser = await direct_chromium_launch(playwright, **launch_kwargs)
             try:
-                context = await browser.new_context(storage_state=account_file)
+                context = await new_browser_context(browser, storage_state=account_file)
                 context = await set_init_script(context)
                 page = await context.new_page()
                 await page.goto("https://creator.douyin.com/creator-micro/content/upload", wait_until="domcontentloaded", timeout=90000)
@@ -273,11 +273,11 @@ async def douyin_cookie_gen(
     async with async_playwright() as playwright:
         if cdp_url:
             browser = await playwright.chromium.connect_over_cdp(cdp_url)
-            context = browser.contexts[0] if browser.contexts else await browser.new_context()
+            context = browser.contexts[0] if browser.contexts else await new_browser_context(browser, )
             should_close_context = False
         else:
             browser = await direct_chromium_launch(playwright, headless=headless, channel="chromium")
-            context = await browser.new_context()
+            context = await new_browser_context(browser, )
             should_close_context = True
         context = await set_init_script(context)
         qrcode_path = None
@@ -974,7 +974,7 @@ class DouYinVideo(DouYinBaseUploader):
         douyin_logger.info(_msg("🥳", "上传前检查通过"))
 
         browser = await direct_chromium_launch(playwright, headless=self.headless, channel="chromium", args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
-        context = await browser.new_context(
+        context = await new_browser_context(browser, 
             storage_state=f"{self.account_file}",
             permissions=["geolocation"],
         )
@@ -1244,7 +1244,7 @@ class DouYinNote(DouYinBaseUploader):
         douyin_logger.info(_msg("🥳", "图文上传前检查通过"))
 
         browser = await direct_chromium_launch(playwright, headless=self.headless, channel="chromium", args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
-        context = await browser.new_context(
+        context = await new_browser_context(browser, 
             storage_state=f"{self.account_file}",
             permissions=["geolocation"],
         )

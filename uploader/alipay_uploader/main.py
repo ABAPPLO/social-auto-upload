@@ -13,7 +13,7 @@ from patchright.async_api import Page, Playwright, TimeoutError as PWTimeoutErro
 
 from conf import BASE_DIR, LOCAL_CHROME_HEADLESS, LOCAL_CHROME_PATH
 from uploader.base_video import BaseVideoUploader
-from utils.base_social_media import set_init_script
+from utils.base_social_media import new_browser_context, set_init_script
 from utils.log import alipay_logger
 from utils.login_qrcode import build_login_qrcode_path
 from utils.login_qrcode import decode_qrcode_from_path
@@ -146,7 +146,7 @@ async def alipay_cookie_gen(account_file, qrcode_callback=None, poll_interval: i
     result = _build_login_result(False, "failed", "支付宝登录失败", account_file)
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(**_build_launch_kwargs(headless=headless))
-        context = await browser.new_context()
+        context = await new_browser_context(browser, )
         try:
             page = await context.new_page()
             # 注意：不能用 set_init_script(stealth) —— 实验证明 stealth 会阻止支付宝登录 iframe 注入
@@ -228,7 +228,7 @@ async def cookie_auth(account_file):
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(**_build_launch_kwargs(headless=True))
         try:
-            context = await browser.new_context(storage_state=account_file)
+            context = await new_browser_context(browser, storage_state=account_file)
             page = await context.new_page()
             await page.goto(ALIPAY_LIFE_ACCOUNT_URL, timeout=60000, wait_until="domcontentloaded")
             await page.wait_for_timeout(5000)
@@ -675,7 +675,7 @@ class AlipayVideo(BaseVideoUploader):
         alipay_logger.info(_msg("🥳", "上传前检查通过"))
 
         browser = await playwright.chromium.launch(**_build_launch_kwargs(headless=self.headless))
-        context = await browser.new_context(storage_state=self.account_file)
+        context = await new_browser_context(browser, storage_state=self.account_file)
         await context.grant_permissions(["geolocation"])
         # 注意：不能用 set_init_script(stealth) —— 会阻止支付宝内容创作平台(qiankun 微应用)渲染
 
