@@ -158,6 +158,40 @@ class RegistryMappingTests(unittest.TestCase):
         self.assertIsInstance(request.publish_date, datetime)
         self.assertEqual(request.description, "简介")
 
+    def test_overseas_platforms_mapping(self):
+        from sau_cli import OverseasVideoUploadRequest
+
+        for platform in ("instagram", "facebook", "x"):
+            fn, request = build_upload_request(platform, "video", self._payload(platform=platform), self.material_dir)
+            self.assertIsInstance(request, OverseasVideoUploadRequest)
+            self.assertEqual(request.platform, platform)
+            self.assertEqual(request.description, "简介")
+            expected_fn = {
+                "instagram": "upload_instagram_video",
+                "facebook": "upload_facebook_video",
+                "x": "upload_x_video",
+            }[platform]
+            self.assertEqual(fn.__name__, expected_fn)
+            # instagram 独享封面，其余平台封面不生效
+            if platform == "instagram":
+                fn2, request2 = build_upload_request(
+                    platform, "video", self._payload(platform=platform, thumbnail="cover.jpg"), self.material_dir
+                )
+                self.assertEqual(request2.thumbnail_file, self.image)
+            else:
+                _, request3 = build_upload_request(
+                    platform, "video", self._payload(platform=platform, thumbnail="cover.jpg"), self.material_dir
+                )
+                self.assertIsNone(request3.thumbnail_file)
+
+    def test_overseas_schedule_rejected(self):
+        future = (datetime.now() + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M")
+        with self.assertRaises(PublishPayloadError) as ctx:
+            build_upload_request(
+                "instagram", "video", self._payload(platform="instagram", publish_date=future), self.material_dir
+            )
+        self.assertIn("不支持定时发布", str(ctx.exception))
+
     def test_schedule_validation(self):
         past = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M")
         with self.assertRaises(PublishPayloadError):

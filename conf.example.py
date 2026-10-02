@@ -11,3 +11,10 @@ DEBUG_MODE = True  # default debug behavior
 YT_PROXY = None
 # Same for TikTok where tiktok.com is blocked (TK_PROXY, e.g. "http://127.0.0.1:7890").
 TK_PROXY = None
+# Overseas platforms proxy (instagram/facebook/x/...): PROXY_MAP per-platform
+# overrides > legacy YT_PROXY/TK_PROXY > DEFAULT_PROXY fallback.
+# Example:
+#   DEFAULT_PROXY = "http://127.0.0.1:7890"
+#   PROXY_MAP = {"instagram": "http://127.0.0.1:7891"}
+DEFAULT_PROXY = None
+PROXY_MAP = {}

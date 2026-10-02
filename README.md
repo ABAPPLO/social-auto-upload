@@ -82,6 +82,9 @@
 | 微博 | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ | 浏览器自动化，标题最多 30 字 |
 | 虎扑 | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ | 浏览器自动化，标题 4–40 字 |
 | TikTok | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | 浏览器自动化（Studio），交互式登录（无二维码，可用网页上传cookie），被墙网络需配 `TK_PROXY` |
+| Instagram | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ | 浏览器自动化（Reels），Meta 交互式登录（含 2FA），需配代理，选择器待实测校准 |
+| Facebook | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ | 浏览器自动化（Reels composer），Meta 交互式登录，需配代理，选择器待实测校准 |
+| X（Twitter） | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ | 浏览器自动化（web composer），交互式登录（含 2FA），非 Premium 视频约 2 分 20 秒上限，需配代理 |
 | YouTube | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ | 浏览器自动化（Studio），支持加入播放列表/可见性 |
 
 ### AI这么强，为什么还需要这个项目
@@ -231,7 +234,19 @@ sau youtube upload-video --account <account_name> --file videos/demo.mp4 --title
 sau tiktok login --account <account_name>
 sau tiktok check --account <account_name>
 sau tiktok upload-video --account <account_name> --file videos/demo.mp4 --title "示例标题" --desc "示例简介" --tags tag1,tag2
+
+sau instagram login --account <account_name>
+sau instagram upload-video --account <account_name> --file videos/demo.mp4 --title "Caption" --tags tag1,tag2 --thumbnail cover.jpg
+
+sau facebook upload-video --account <account_name> --file videos/demo.mp4 --title "Caption" --tags tag1,tag2
+
+sau x upload-video --account <account_name> --file videos/demo.mp4 --title "Caption" --tags tag1,tag2
 ```
+
+> 海外平台（YouTube/TikTok/Instagram/Facebook/X）在被墙网络下需在 `conf.py` 配置代理：
+> 推荐 `DEFAULT_PROXY = "http://127.0.0.1:7890"` 一键全生效，或 `PROXY_MAP = {"instagram": "..."}` 按平台覆盖
+> （兼容旧的 `YT_PROXY` / `TK_PROXY`）。登录均为交互式（无二维码）：本地终端 `sau <平台> login` 后，
+> 通过 Web 管理台「上传 cookie」推送登录态即可在服务器发布。
 
 > YouTube 说明：登录是交互式的（Google 账号，浏览器里完成，无二维码）。这里走浏览器自动化而不是官方 API，
 > 是因为**未通过 Google 合规审核的 API 项目上传的视频会被强制锁为私享、无法改公开**，对个人/单频道不实用；

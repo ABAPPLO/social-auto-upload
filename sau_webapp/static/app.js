@@ -23,6 +23,9 @@ const PLATFORM_META = {
   hupu: { icon: "🏀", color: "#c01e2e" },
   youtube: { icon: "▶️", color: "#ff0000" },
   tiktok: { icon: "🎧", color: "#fe2c55" },
+  instagram: { icon: "📸", color: "#e1306c" },
+  facebook: { icon: "📘", color: "#1877f2" },
+  x: { icon: "𝕏", color: "#000000" },
 };
 
 const CHART_COLORS = ["#409eff", "#34c77b", "#ff9f40", "#7b5cff", "#ff6b81", "#00c9a7", "#f8b422", "#5f7bff", "#a78bfa", "#38d9a9"];

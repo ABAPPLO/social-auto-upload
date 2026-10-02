@@ -175,6 +175,43 @@ PLATFORM_SPECS: dict[str, PlatformSpec] = {
         check=sau_cli.check_tiktok_account,
         upload_video=sau_cli.upload_tiktok_video,
     ),
+    "instagram": PlatformSpec(
+        key="instagram",
+        name="Instagram",
+        login_mode=LOGIN_MODE_TERMINAL,
+        terminal_login_hint=(
+            "Instagram 登录是 Meta 账号交互式流程（无二维码）：在本地电脑终端执行 "
+            "sau instagram login --account <账号名>（弹出浏览器手动登录，含 2FA），"
+            "然后把 cookies/instagram_<账号名>.json 通过「上传cookie」推送到服务器。"
+            "被墙网络需在服务器 conf.py 配置代理（DEFAULT_PROXY 或 PROXY_MAP）。"
+        ),
+        check=sau_cli.check_instagram_account,
+        upload_video=sau_cli.upload_instagram_video,
+    ),
+    "facebook": PlatformSpec(
+        key="facebook",
+        name="Facebook",
+        login_mode=LOGIN_MODE_TERMINAL,
+        terminal_login_hint=(
+            "Facebook 登录是 Meta 账号交互式流程（无二维码）：在本地电脑终端执行 "
+            "sau facebook login --account <账号名>，然后把 cookies/facebook_<账号名>.json "
+            "通过「上传cookie」推送到服务器。被墙网络需配置代理（DEFAULT_PROXY）。"
+        ),
+        check=sau_cli.check_facebook_account,
+        upload_video=sau_cli.upload_facebook_video,
+    ),
+    "x": PlatformSpec(
+        key="x",
+        name="X（Twitter）",
+        login_mode=LOGIN_MODE_TERMINAL,
+        terminal_login_hint=(
+            "X 登录是交互式流程（无二维码）：在本地电脑终端执行 "
+            "sau x login --account <账号名>（用户名/密码 + 2FA），然后把 cookies/x_<账号名>.json "
+            "通过「上传cookie」推送到服务器。非 Premium 账号视频上限约 2 分 20 秒；需配置代理。"
+        ),
+        check=sau_cli.check_x_account,
+        upload_video=sau_cli.upload_x_video,
+    ),
 }
 
 
@@ -455,6 +492,17 @@ def build_upload_request(
                 tags=tags,
                 publish_date=publish_date,
                 thumbnail_file=thumbnail,
+                headless=headless,
+            )
+        elif platform in ("instagram", "facebook", "x"):
+            request = sau_cli.OverseasVideoUploadRequest(
+                platform=platform,
+                account_name=account_name,
+                video_file=video_file,
+                title=title,
+                description=desc,
+                tags=tags,
+                thumbnail_file=thumbnail if platform == "instagram" else None,
                 headless=headless,
             )
         else:  # pragma: no cover - 注册表受限，理论上不可达

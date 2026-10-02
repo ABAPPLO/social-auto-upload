@@ -71,6 +71,21 @@ from uploader.tk_uploader.main_chrome import (
     cookie_auth as tiktok_cookie_auth,
     tiktok_setup,
 )
+from uploader.instagram_uploader.main import (
+    InstagramVideo,
+    cookie_auth as instagram_cookie_auth,
+    instagram_setup,
+)
+from uploader.facebook_uploader.main import (
+    FacebookReel,
+    cookie_auth as facebook_cookie_auth,
+    facebook_setup,
+)
+from uploader.x_uploader.main import (
+    XPost,
+    cookie_auth as x_cookie_auth,
+    x_setup,
+)
 
 SCHEDULE_FORMAT = "%Y-%m-%d %H:%M"
 
@@ -274,6 +289,27 @@ class TiktokVideoUploadRequest:
     headless: bool = True
 
 
+@dataclass(slots=True)
+class OverseasVideoUploadRequest:
+    """Instagram / Facebook / X 共用：标题(含desc合并)+标签，无平台侧定时（v1）。"""
+    platform: str
+    account_name: str
+    video_file: Path
+    title: str
+    description: str
+    tags: list[str]
+    thumbnail_file: Path | None = None
+    debug: bool = True
+    headless: bool = True
+
+
+OVERSEAS_PLATFORMS = ("instagram", "facebook", "x")
+OVERSEAS_SETUPS = {"instagram": instagram_setup, "facebook": facebook_setup, "x": x_setup}
+OVERSEAS_CHECKS = {"instagram": instagram_cookie_auth, "facebook": facebook_cookie_auth, "x": x_cookie_auth}
+OVERSEAS_VIDEO_CLASSES = {"instagram": InstagramVideo, "facebook": FacebookReel, "x": XPost}
+OVERSEAS_PLATFORM_NAMES = {"instagram": "Instagram", "facebook": "Facebook", "x": "X(Twitter)"}
+
+
 def has_interactive_terminal() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
@@ -468,6 +504,108 @@ async def upload_tiktok_video(request: TiktokVideoUploadRequest) -> Path:
         debug=request.debug,
         headless=request.headless,
     )
+    await app.main()
+    return account_file
+
+
+# ---- Instagram / Facebook / X 的具名封装（供 Web registry / 语义化调用） ----
+
+async def login_instagram_account(account_name: str, headless: bool = False) -> dict:
+    return await login_overseas_account("instagram", account_name, headless)
+
+
+async def check_instagram_account(account_name: str) -> bool:
+    return await check_overseas_account("instagram", account_name)
+
+
+async def upload_instagram_video(request: OverseasVideoUploadRequest) -> Path:
+    return await upload_overseas_video(request)
+
+
+async def login_facebook_account(account_name: str, headless: bool = False) -> dict:
+    return await login_overseas_account("facebook", account_name, headless)
+
+
+async def check_facebook_account(account_name: str) -> bool:
+    return await check_overseas_account("facebook", account_name)
+
+
+async def upload_facebook_video(request: OverseasVideoUploadRequest) -> Path:
+    return await upload_overseas_video(request)
+
+
+async def login_x_account(account_name: str, headless: bool = False) -> dict:
+    return await login_overseas_account("x", account_name, headless)
+
+
+async def check_x_account(account_name: str) -> bool:
+    return await check_overseas_account("x", account_name)
+
+
+async def upload_x_video(request: OverseasVideoUploadRequest) -> Path:
+    return await upload_overseas_video(request)
+
+
+def _overseas_login_hint(platform: str, account_name: str) -> str:
+    return (
+        f"{OVERSEAS_PLATFORM_NAMES[platform]} 登录需要弹出浏览器窗口手动操作：在本地终端执行 "
+        f"`sau {platform} login --account {account_name}`，或在本地登录后通过网页「上传cookie」推送 "
+        f"cookies/{platform}_{account_name}.json。被墙网络需在 conf.py 配置代理"
+        "（DEFAULT_PROXY 或 PROXY_MAP）。"
+    )
+
+
+async def login_overseas_account(platform: str, account_name: str, headless: bool = False) -> dict:
+    account_file = resolve_account_file(platform, account_name)
+    if not has_interactive_terminal() and not headless:
+        return {
+            "success": False,
+            "message": _overseas_login_hint(platform, account_name),
+            "account_file": str(account_file),
+        }
+    return await OVERSEAS_SETUPS[platform](str(account_file), handle=True, return_detail=True, headless=headless)
+
+
+async def check_overseas_account(platform: str, account_name: str) -> bool:
+    account_file = resolve_account_file(platform, account_name)
+    if not account_file.exists():
+        return False
+    return await OVERSEAS_CHECKS[platform](str(account_file))
+
+
+async def upload_overseas_video(request: OverseasVideoUploadRequest) -> Path:
+    platform = request.platform
+    account_file = resolve_account_file(platform, request.account_name)
+    is_ready = await OVERSEAS_SETUPS[platform](str(account_file), handle=False)
+    if not is_ready:
+        raise RuntimeError(
+            f"{OVERSEAS_PLATFORM_NAMES[platform]} cookie is missing or expired: {account_file}. "
+            f"Run `sau {platform} login --account {request.account_name}` first (interactive, needs a display) "
+            "or upload the cookie file via the web console."
+        )
+
+    # 标题+desc 合并为一段式文案（这三家都没有独立标题字段）
+    caption = request.title if not request.description else f"{request.title}\n{request.description}"
+    video_class = OVERSEAS_VIDEO_CLASSES[platform]
+    if platform == "instagram":
+        app = video_class(
+            caption,
+            str(request.video_file),
+            request.tags,
+            str(account_file),
+            thumbnail_path=str(request.thumbnail_file) if request.thumbnail_file else None,
+            debug=request.debug,
+            headless=request.headless,
+        )
+    else:
+        app = video_class(
+            caption,
+            str(request.video_file),
+            request.tags,
+            str(account_file),
+            debug=request.debug,
+            headless=request.headless,
+        )
     await app.main()
     return account_file
 
@@ -1099,6 +1237,25 @@ def build_parser() -> argparse.ArgumentParser:
     tiktok_upload_video_parser.add_argument("--thumbnail", type=existing_file_path, help="Optional cover image path")
     add_runtime_flags(tiktok_upload_video_parser)
 
+    # Instagram / Facebook / X：同一套命令面（login/check/upload-video）
+    for overseas_platform in OVERSEAS_PLATFORMS:
+        platform_display = OVERSEAS_PLATFORM_NAMES[overseas_platform]
+        platform_parser = platform_parsers.add_parser(overseas_platform, help=f"{platform_display} operations")
+        platform_actions = platform_parser.add_subparsers(dest="action", required=True)
+        for action_name in ("login", "check"):
+            action_parser = platform_actions.add_parser(action_name, help=f"{platform_display} {action_name}")
+            action_parser.add_argument("--account", required=True, help=f"{platform_display} user-defined account_name")
+            if action_name == "login":
+                add_runtime_flags(action_parser)
+        upload_parser = platform_actions.add_parser("upload-video", help=f"Upload one video to {platform_display}")
+        upload_parser.add_argument("--account", required=True, help=f"{platform_display} user-defined account_name")
+        upload_parser.add_argument("--file", required=True, type=existing_file_path, help="Video file path")
+        upload_parser.add_argument("--title", required=True, help="Caption title")
+        upload_parser.add_argument("--desc", default="", help="Optional caption text appended after title")
+        upload_parser.add_argument("--tags", default="", help="Comma-separated tags, such as tag1,tag2")
+        upload_parser.add_argument("--thumbnail", type=existing_file_path, help="Optional cover image (instagram only)")
+        add_runtime_flags(upload_parser)
+
     baijiahao_parser = platform_parsers.add_parser("baijiahao", help="Baidu Baijiahao operations")
     baijiahao_actions = baijiahao_parser.add_subparsers(dest="action", required=True)
 
@@ -1523,6 +1680,37 @@ async def dispatch(args: argparse.Namespace) -> int:
             return 0
 
         raise RuntimeError(f"Unsupported TikTok action: {args.action}")
+
+    if args.platform in OVERSEAS_PLATFORMS:
+        if args.action == "login":
+            result = await login_overseas_account(args.platform, args.account, headless=args.headless)
+            if not result["success"]:
+                raise RuntimeError(result["message"])
+            print(f"{OVERSEAS_PLATFORM_NAMES[args.platform]} login flow completed: {result['account_file']}")
+            return 0
+
+        if args.action == "check":
+            is_valid = await check_overseas_account(args.platform, args.account)
+            print("valid" if is_valid else "invalid")
+            return 0 if is_valid else 1
+
+        if args.action == "upload-video":
+            request = OverseasVideoUploadRequest(
+                platform=args.platform,
+                account_name=args.account,
+                video_file=args.file,
+                title=args.title,
+                description=args.desc,
+                tags=parse_tags(args.tags),
+                thumbnail_file=args.thumbnail if args.platform == "instagram" else None,
+                debug=args.debug,
+                headless=args.headless,
+            )
+            await upload_overseas_video(request)
+            print(f"{OVERSEAS_PLATFORM_NAMES[args.platform]} video upload submitted: {request.video_file}")
+            return 0
+
+        raise RuntimeError(f"Unsupported {args.platform} action: {args.action}")
 
     if args.platform == "baijiahao":
         if args.action == "login":
