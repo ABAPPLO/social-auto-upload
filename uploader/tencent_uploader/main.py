@@ -248,7 +248,12 @@ async def _is_tencent_login_completed(page: Page) -> bool:
         except Exception:
             continue
 
-    if not (page.url.startswith(TENCENT_UPLOAD_URL) or page.url.startswith(TENCENT_MANAGE_URL)):
+    # 宽判定：进入平台区任意非登录页即视为已登录。历史白名单只认
+    # post/create 与 post/list，微信扫码后跳到其他 platform 页面
+    # （改版/首页）时会永远判定失败——"手机确认了网页却没反应"的主因。
+    url = page.url
+    on_platform = url.startswith("https://channels.weixin.qq.com/platform/") and "login" not in url.lower()
+    if not on_platform:
         return False
 
     login_markers = [
@@ -352,14 +357,37 @@ async def _wait_for_tencent_login(
 ) -> dict:
     qrcode_path = Path(qrcode_info["image_path"]) if qrcode_info else None
     scanned_logged = False
+    last_url = page.url
+    confirm_stuck_since: float | None = None
+    nudged = False
     for _ in range(max_checks):
         if await _is_tencent_login_completed(page):
             tencent_logger.info(_msg("🥳", f"扫码成功，已经跳转到登录后页面: {page.url}"))
             return _build_login_result(True, "success", "视频号扫码登录成功", account_file, qrcode_info, page.url)
 
+        if page.url != last_url:
+            tencent_logger.info(_msg("🧭", f"页面跳转: {last_url} → {page.url}"))
+            last_url = page.url
+            confirm_stuck_since = None
+
         if not scanned_logged and await _is_tencent_qrcode_scanned(page):
             tencent_logger.info(_msg("📱", "已经扫码啦，还差手机端确认一下"))
             scanned_logged = True
+
+        # 已扫码、提示条已消失（手机确认过）但页面迟迟不跳转：微信登录 iframe
+        # 偶发收尾失败不触发跳转，刷新一次登录页让它带着新 cookie 重定向
+        if scanned_logged and not nudged and "login" in page.url.lower():
+            if await _is_tencent_qrcode_scanned(page):
+                confirm_stuck_since = None  # 还在等手机确认，不催
+            elif confirm_stuck_since is None:
+                confirm_stuck_since = time.time()
+            elif time.time() - confirm_stuck_since > 10:
+                nudged = True
+                tencent_logger.warning(_msg("🔄", "扫码已确认但页面未跳转，刷新登录页促发跳转"))
+                try:
+                    await page.reload(wait_until="domcontentloaded")
+                except Exception:
+                    pass
 
         if await _is_tencent_qrcode_expired(page):
             tencent_logger.warning(_msg("😵", "二维码失效了，小人马上去刷新"))
@@ -378,6 +406,7 @@ async def _wait_for_tencent_login(
 
         await asyncio.sleep(poll_interval)
 
+    tencent_logger.warning(_msg("📍", f"等待超时，页面最终停在: {page.url}"))
     return _build_login_result(False, "timeout", "等待视频号扫码登录超时", account_file, qrcode_info, page.url)
 
 
@@ -387,13 +416,20 @@ async def tencent_cookie_gen(
     poll_interval: int = 3,
     max_checks: int = 100,
     headless: bool = LOCAL_CHROME_HEADLESS,
+    cdp_url: str | None = None,
 ):
     account_file = _resolve_account_file(account_file)
     Path(account_file).parent.mkdir(parents=True, exist_ok=True)
 
     async with async_playwright() as playwright:
-        browser = await direct_chromium_launch(playwright, **_build_launch_kwargs(headless=headless))
-        context = await new_browser_context(browser, )
+        if cdp_url:
+            browser = await playwright.chromium.connect_over_cdp(cdp_url)
+            context = browser.contexts[0] if browser.contexts else await new_browser_context(browser, )
+            should_close_context = False
+        else:
+            browser = await direct_chromium_launch(playwright, **_build_launch_kwargs(headless=headless))
+            context = await new_browser_context(browser, )
+            should_close_context = True
         qrcode_path = None
         result = _build_login_result(False, "failed", "视频号登录失败", account_file)
         try:
@@ -445,7 +481,8 @@ async def tencent_cookie_gen(
                 tencent_logger.info(_msg("🧹", f"临时二维码文件已清理: {qrcode_path}"))
             if not result["success"]:
                 tencent_logger.error(_msg("😢", f"登录失败: {result['message']}"))
-            await context.close()
+            if should_close_context:
+                await context.close()
             await browser.close()
 
 
@@ -455,6 +492,7 @@ async def tencent_setup(
     return_detail=False,
     qrcode_callback=None,
     headless: bool = LOCAL_CHROME_HEADLESS,
+    cdp_url: str | None = None,
 ):
     account_file = _resolve_account_file(account_file)
     if not os.path.exists(account_file) or not await cookie_auth(account_file):
@@ -463,7 +501,7 @@ async def tencent_setup(
             return result if return_detail else False
 
         tencent_logger.info(_msg("🥹", "cookie 失效了，准备打开浏览器重新登录"))
-        result = await tencent_cookie_gen(account_file, qrcode_callback=qrcode_callback, headless=headless)
+        result = await tencent_cookie_gen(account_file, qrcode_callback=qrcode_callback, headless=headless, cdp_url=cdp_url)
         return result if return_detail else result["success"]
 
     result = _build_login_result(True, "cookie_valid", "cookie有效", account_file)
