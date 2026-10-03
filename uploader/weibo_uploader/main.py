@@ -154,7 +154,7 @@ async def _is_login_completed(page: Page) -> bool:
     return False
 
 
-async def weibo_cookie_gen(account_file, qrcode_callback=None, poll_interval: int = 3, max_checks: int = 120, headless: bool = LOCAL_CHROME_HEADLESS):
+async def weibo_cookie_gen(account_file, qrcode_callback=None, poll_interval: int = 3, max_checks: int = 120, headless: bool = LOCAL_CHROME_HEADLESS, cdp_url: str | None = None):
     """无头/有头扫码登录微博，保存 cookie。
 
     流程：直接打开微博 passport 扫码页 → 截取二维码 → 等待扫码完成（跳转回首页）→ 保存 storage_state。
@@ -166,8 +166,14 @@ async def weibo_cookie_gen(account_file, qrcode_callback=None, poll_interval: in
     result = _build_login_result(False, "failed", "微博登录失败", account_file)
 
     async with async_playwright() as playwright:
-        browser = await direct_chromium_launch(playwright, **_build_launch_kwargs(headless=headless))
-        context = await new_browser_context(browser, )
+        if cdp_url:
+            browser = await playwright.chromium.connect_over_cdp(cdp_url)
+            context = browser.contexts[0] if browser.contexts else await new_browser_context(browser, )
+            should_close_context = False
+        else:
+            browser = await direct_chromium_launch(playwright, **_build_launch_kwargs(headless=headless))
+            context = await new_browser_context(browser, )
+            should_close_context = True
         try:
             page = await context.new_page()
             # 直接导航到 passport 扫码登录页，绕过首页的"登录"按钮（headless 下不可见）
@@ -215,7 +221,8 @@ async def weibo_cookie_gen(account_file, qrcode_callback=None, poll_interval: in
                 weibo_logger.info(_msg("🧹", f"临时二维码文件已清理: {qrcode_path}"))
             if not result["success"]:
                 weibo_logger.error(_msg("😢", f"登录失败: {result['message']}"))
-            await context.close()
+            if should_close_context:
+                await context.close()
             await browser.close()
     return result
 
@@ -251,7 +258,7 @@ async def cookie_auth(account_file):
             await browser.close()
 
 
-async def weibo_setup(account_file, handle=False, return_detail=False, qrcode_callback=None, headless: bool = LOCAL_CHROME_HEADLESS):
+async def weibo_setup(account_file, handle=False, return_detail=False, qrcode_callback=None, headless: bool = LOCAL_CHROME_HEADLESS, cdp_url: str | None = None):
     """统一入口：检查 cookie → 如无效且 handle=True 则触发扫码登录。"""
     account_file = _resolve_account_file(account_file)
     if not os.path.exists(account_file) or not await cookie_auth(account_file):
@@ -259,7 +266,7 @@ async def weibo_setup(account_file, handle=False, return_detail=False, qrcode_ca
             result = _build_login_result(False, "cookie_invalid", "cookie 文件不存在或已失效", account_file)
             return result if return_detail else False
         weibo_logger.info(_msg("🥹", "cookie 文件不存在或已失效，自动打开浏览器请扫码登录"))
-        result = await weibo_cookie_gen(account_file, qrcode_callback=qrcode_callback, headless=headless)
+        result = await weibo_cookie_gen(account_file, qrcode_callback=qrcode_callback, headless=headless, cdp_url=cdp_url)
         return result if return_detail else result["success"]
 
     result = _build_login_result(True, "cookie_valid", "cookie 有效", account_file)

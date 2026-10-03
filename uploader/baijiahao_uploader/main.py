@@ -118,7 +118,7 @@ async def _is_login_completed(page: Page) -> bool:
     return True
 
 
-async def baijiahao_cookie_gen(account_file, qrcode_callback=None, poll_interval: int = 3, max_checks: int = 120, headless: bool = LOCAL_CHROME_HEADLESS):
+async def baijiahao_cookie_gen(account_file, qrcode_callback=None, poll_interval: int = 3, max_checks: int = 120, headless: bool = LOCAL_CHROME_HEADLESS, cdp_url: str | None = None):
     """无头/有头扫码登录百家号，保存 cookie。
 
     流程：打开登录页 → 点「登录」按钮弹出百度 passport 登录框 → 截取二维码 → 等待扫码完成 → 保存 storage_state。
@@ -130,8 +130,14 @@ async def baijiahao_cookie_gen(account_file, qrcode_callback=None, poll_interval
     result = _build_login_result(False, "failed", "百家号登录失败", account_file)
 
     async with async_playwright() as playwright:
-        browser = await direct_chromium_launch(playwright, **_build_launch_kwargs(headless=headless))
-        context = await new_browser_context(browser, )
+        if cdp_url:
+            browser = await playwright.chromium.connect_over_cdp(cdp_url)
+            context = browser.contexts[0] if browser.contexts else await new_browser_context(browser, )
+            should_close_context = False
+        else:
+            browser = await direct_chromium_launch(playwright, **_build_launch_kwargs(headless=headless))
+            context = await new_browser_context(browser, )
+            should_close_context = True
         try:
             page = await context.new_page()
             await page.goto(BAIJIAHAO_LOGIN_URL, timeout=60000, wait_until="domcontentloaded")
@@ -179,7 +185,8 @@ async def baijiahao_cookie_gen(account_file, qrcode_callback=None, poll_interval
                 baijiahao_logger.info(_msg("🧹", f"临时二维码文件已清理: {qrcode_path}"))
             if not result["success"]:
                 baijiahao_logger.error(_msg("😢", f"登录失败: {result['message']}"))
-            await context.close()
+            if should_close_context:
+                await context.close()
             await browser.close()
     return result
 
@@ -208,7 +215,7 @@ async def cookie_auth(account_file):
             await browser.close()
 
 
-async def baijiahao_setup(account_file, handle=False, return_detail=False, qrcode_callback=None, headless: bool = LOCAL_CHROME_HEADLESS):
+async def baijiahao_setup(account_file, handle=False, return_detail=False, qrcode_callback=None, headless: bool = LOCAL_CHROME_HEADLESS, cdp_url: str | None = None):
     """统一入口：检查 cookie → 如无效且 handle=True 则触发扫码登录。"""
     account_file = _resolve_account_file(account_file)
     if not os.path.exists(account_file) or not await cookie_auth(account_file):
@@ -216,7 +223,7 @@ async def baijiahao_setup(account_file, handle=False, return_detail=False, qrcod
             result = _build_login_result(False, "cookie_invalid", "cookie 文件不存在或已失效", account_file)
             return result if return_detail else False
         baijiahao_logger.info(_msg("🥹", "cookie 文件不存在或已失效，自动打开浏览器请扫码登录"))
-        result = await baijiahao_cookie_gen(account_file, qrcode_callback=qrcode_callback, headless=headless)
+        result = await baijiahao_cookie_gen(account_file, qrcode_callback=qrcode_callback, headless=headless, cdp_url=cdp_url)
         return result if return_detail else result["success"]
 
     result = _build_login_result(True, "cookie_valid", "cookie 有效", account_file)

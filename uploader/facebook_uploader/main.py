@@ -83,24 +83,29 @@ async def cookie_auth(account_file):
     return False
 
 
-async def facebook_setup(account_file, handle=False, return_detail=False, qrcode_callback=None, headless: bool = False):
+async def facebook_setup(account_file, handle=False, return_detail=False, qrcode_callback=None, headless: bool = False, cdp_url: str | None = None):
     if not os.path.exists(account_file) or not await cookie_auth(account_file):
         if not handle:
             result = _build_login_result(False, "cookie_invalid", "cookie文件不存在或已失效", account_file)
             return result if return_detail else False
-        result = await get_facebook_cookie(account_file, headless=headless)
+        result = await get_facebook_cookie(account_file, headless=headless, cdp_url=cdp_url)
         return result if return_detail else result["success"]
 
     result = _build_login_result(True, "cookie_valid", "cookie有效", account_file)
     return result if return_detail else True
 
 
-async def get_facebook_cookie(account_file, headless: bool = False):
+async def get_facebook_cookie(account_file, headless: bool = False, cdp_url: str | None = None):
     """交互式登录：本地有显示器的环境弹出浏览器，用户手动完成（含 2FA），轮询会话 cookie。"""
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(**_launch_kwargs(headless=headless))
-        try:
+        if cdp_url:
+            # 本地浏览器登录：用户本机 Chrome 自带网络环境，跳过服务器代理
+            browser = await playwright.chromium.connect_over_cdp(cdp_url)
+            context = browser.contexts[0] if browser.contexts else await new_browser_context(browser, )
+        else:
+            browser = await playwright.chromium.launch(**_launch_kwargs(headless=headless))
             context = await new_browser_context(browser, )
+        try:
             context = await set_init_script(context)
             page = await context.new_page()
             await page.goto("https://www.facebook.com/login", wait_until="domcontentloaded", timeout=90000)

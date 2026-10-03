@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from uploader.base_video import BaseVideoUploader
+from uploader.facebook_uploader.main import facebook_setup
+from uploader.instagram_uploader.main import instagram_setup
 from uploader.baijiahao_uploader.main import baijiahao_setup
 from uploader.alipay_uploader.main import alipay_setup
 from uploader.douyin_uploader.main import douyin_setup
@@ -19,7 +21,10 @@ from uploader.ks_uploader.main import ks_setup
 from uploader.tencent_uploader.main import tencent_setup
 from uploader.weibo_uploader.main import weibo_setup
 from uploader.hupu_uploader.main import hupu_setup
+from uploader.tk_uploader.main_chrome import tiktok_setup
+from uploader.x_uploader.main import x_setup
 from uploader.xiaohongshu_uploader.main import xiaohongshu_setup
+from uploader.youtube_uploader.main import youtube_setup
 from utils.constant import TencentZoneTypes, VideoZoneTypes
 
 import sau_cli
@@ -158,6 +163,7 @@ PLATFORM_SPECS: dict[str, PlatformSpec] = {
             "sau youtube login --account <账号名>，然后把生成的 cookies/youtube_<账号名>.json "
             "通过本页「上传cookie」推送到服务器。"
         ),
+        setup=youtube_setup,
         check=sau_cli.check_youtube_account,
         upload_video=sau_cli.upload_youtube_video,
         extra_fields=("visibility", "playlist"),
@@ -172,6 +178,7 @@ PLATFORM_SPECS: dict[str, PlatformSpec] = {
             "通过「上传cookie」推送到服务器。被墙网络需在服务器 conf.py 配置 TK_PROXY。"
         ),
         supports_schedule=True,
+        setup=tiktok_setup,
         check=sau_cli.check_tiktok_account,
         upload_video=sau_cli.upload_tiktok_video,
     ),
@@ -185,6 +192,7 @@ PLATFORM_SPECS: dict[str, PlatformSpec] = {
             "然后把 cookies/instagram_<账号名>.json 通过「上传cookie」推送到服务器。"
             "被墙网络需在服务器 conf.py 配置代理（DEFAULT_PROXY 或 PROXY_MAP）。"
         ),
+        setup=instagram_setup,
         check=sau_cli.check_instagram_account,
         upload_video=sau_cli.upload_instagram_video,
     ),
@@ -197,6 +205,7 @@ PLATFORM_SPECS: dict[str, PlatformSpec] = {
             "sau facebook login --account <账号名>，然后把 cookies/facebook_<账号名>.json "
             "通过「上传cookie」推送到服务器。被墙网络需配置代理（DEFAULT_PROXY）。"
         ),
+        setup=facebook_setup,
         check=sau_cli.check_facebook_account,
         upload_video=sau_cli.upload_facebook_video,
     ),
@@ -209,6 +218,7 @@ PLATFORM_SPECS: dict[str, PlatformSpec] = {
             "sau x login --account <账号名>（用户名/密码 + 2FA），然后把 cookies/x_<账号名>.json "
             "通过「上传cookie」推送到服务器。非 Premium 账号视频上限约 2 分 20 秒；需配置代理。"
         ),
+        setup=x_setup,
         check=sau_cli.check_x_account,
         upload_video=sau_cli.upload_x_video,
     ),

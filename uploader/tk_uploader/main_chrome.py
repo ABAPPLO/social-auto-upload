@@ -59,31 +59,36 @@ async def cookie_auth(account_file):
     return False
 
 
-async def tiktok_setup(account_file, handle=False, return_detail=False, qrcode_callback=None, headless: bool = False):
+async def tiktok_setup(account_file, handle=False, return_detail=False, qrcode_callback=None, headless: bool = False, cdp_url: str | None = None):
     if not os.path.exists(account_file) or not await cookie_auth(account_file):
         if not handle:
             result = _build_login_result(False, "cookie_invalid", "cookie文件不存在或已失效", account_file)
             return result if return_detail else False
-        result = await get_tiktok_cookie(account_file, headless=headless)
+        result = await get_tiktok_cookie(account_file, headless=headless, cdp_url=cdp_url)
         return result if return_detail else result["success"]
 
     result = _build_login_result(True, "cookie_valid", "cookie有效", account_file)
     return result if return_detail else True
 
 
-async def get_tiktok_cookie(account_file, headless: bool = False):
+async def get_tiktok_cookie(account_file, headless: bool = False, cdp_url: str | None = None):
     """交互式登录：打开 TikTok 登录页（需要有显示器的环境），轮询 sessionid cookie 出现即保存。
 
     无二维码回调——TikTok 登录方式多样（手机号/Google/二维码等），统一等用户自行完成。
     服务器无显示器时：在本地电脑登录后通过「上传cookie」把 storage_state 推到服务器。
     """
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(
-            headless=headless, channel="chromium", args=LAUNCH_ARGS,
-            proxy={"server": _PROXY} if _PROXY else None,
-        )
-        try:
+        if cdp_url:
+            # 本地浏览器登录：用户本机 Chrome 自带网络环境，跳过服务器代理
+            browser = await playwright.chromium.connect_over_cdp(cdp_url)
+            context = browser.contexts[0] if browser.contexts else await new_browser_context(browser, )
+        else:
+            browser = await playwright.chromium.launch(
+                headless=headless, channel="chromium", args=LAUNCH_ARGS,
+                proxy={"server": _PROXY} if _PROXY else None,
+            )
             context = await new_browser_context(browser, )
+        try:
             context = await set_init_script(context)
             page = await context.new_page()
             await page.goto("https://www.tiktok.com/login?lang=en", wait_until="domcontentloaded", timeout=90000)

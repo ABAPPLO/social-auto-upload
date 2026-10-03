@@ -133,7 +133,7 @@ async def _capture_alipay_qr(page: Page, account_file: str, previous_qrcode_path
     return {"image_path": str(qrcode_path), "image_data_url": ""}
 
 
-async def alipay_cookie_gen(account_file, qrcode_callback=None, poll_interval: int = 3, max_checks: int = 100, headless: bool = LOCAL_CHROME_HEADLESS):
+async def alipay_cookie_gen(account_file, qrcode_callback=None, poll_interval: int = 3, max_checks: int = 100, headless: bool = LOCAL_CHROME_HEADLESS, cdp_url: str | None = None):
     """打开浏览器，用户扫码登录支付宝生活号，登录成功后保存 cookie（镜像 douyin_cookie_gen）。
 
     二维码 png 落 cookies 目录（*login_qrcode*.png）供终端显示/告知位置；qrcode_callback 可选（如 relogin 推飞书）。
@@ -145,8 +145,14 @@ async def alipay_cookie_gen(account_file, qrcode_callback=None, poll_interval: i
     qrcode_path = None
     result = _build_login_result(False, "failed", "支付宝登录失败", account_file)
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(**_build_launch_kwargs(headless=headless))
-        context = await new_browser_context(browser, )
+        if cdp_url:
+            browser = await playwright.chromium.connect_over_cdp(cdp_url)
+            context = browser.contexts[0] if browser.contexts else await new_browser_context(browser, )
+            should_close_context = False
+        else:
+            browser = await playwright.chromium.launch(**_build_launch_kwargs(headless=headless))
+            context = await new_browser_context(browser, )
+            should_close_context = True
         try:
             page = await context.new_page()
             # 注意：不能用 set_init_script(stealth) —— 实验证明 stealth 会阻止支付宝登录 iframe 注入
@@ -205,7 +211,8 @@ async def alipay_cookie_gen(account_file, qrcode_callback=None, poll_interval: i
                 alipay_logger.info(_msg("🧹", f"临时二维码文件已清理: {qrcode_path}"))
             if not result["success"]:
                 alipay_logger.error(_msg("😢", f"登录失败: {result['message']}"))
-            await context.close()
+            if should_close_context:
+                await context.close()
             await browser.close()
     return result
 
@@ -251,14 +258,14 @@ async def cookie_auth(account_file):
             await browser.close()
 
 
-async def alipay_setup(account_file, handle=False, return_detail=False, qrcode_callback=None, headless: bool = LOCAL_CHROME_HEADLESS):
+async def alipay_setup(account_file, handle=False, return_detail=False, qrcode_callback=None, headless: bool = LOCAL_CHROME_HEADLESS, cdp_url: str | None = None):
     account_file = _resolve_account_file(account_file)
     if not os.path.exists(account_file) or not await cookie_auth(account_file):
         if not handle:
             result = _build_login_result(False, "cookie_invalid", "cookie 文件不存在或已失效", account_file)
             return result if return_detail else False
         alipay_logger.info(_msg("🥹", "cookie 文件不存在或已失效，自动打开浏览器请扫码登录"))
-        result = await alipay_cookie_gen(account_file, qrcode_callback=qrcode_callback, headless=headless)
+        result = await alipay_cookie_gen(account_file, qrcode_callback=qrcode_callback, headless=headless, cdp_url=cdp_url)
         return result if return_detail else result["success"]
 
     result = _build_login_result(True, "cookie_valid", "cookie 有效", account_file)

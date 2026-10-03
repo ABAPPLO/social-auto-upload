@@ -117,6 +117,14 @@ const app = createApp({
     addSpec() {
       return this.meta.platforms.find((p) => p.key === this.addDialog.platform) || null;
     },
+    // 可在网页上发起登录的平台：扫码类 + 支持本地浏览器（CDP）的终端类
+    loginPlatforms() {
+      return this.meta.platforms.filter((p) => p.login_mode === "qrcode" || p.supports_cdp);
+    },
+    // 登录弹窗当前任务对应的平台信息
+    loginDialogSpec() {
+      return this.loginDialog.task ? this.meta.platforms.find((p) => p.key === this.loginDialog.task.platform) : null;
+    },
     // 本地浏览器（CDP）登录分步指引的命令
     cdpChromeCmd() {
       return '"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9222 --user-data-dir=C:\\sau-chrome';
@@ -430,7 +438,7 @@ const app = createApp({
     openAddAccount() {
       this.addDialog = {
         visible: true,
-        platform: this.qrcodePlatforms.length ? this.qrcodePlatforms[0].key : "douyin",
+        platform: this.loginPlatforms.length ? this.loginPlatforms[0].key : "douyin",
         accountName: "",
         cdpUrl: "",
       };
@@ -481,7 +489,13 @@ const app = createApp({
         ElementPlus.ElMessage.warning("请填写账号名（自定义名称，用于区分不同账号）");
         return;
       }
-      await this.startLogin(this.addDialog.platform, accountName, (this.addDialog.cdpUrl || "").trim());
+      const cdpUrl = (this.addDialog.cdpUrl || "").trim();
+      // 终端登录类平台（TikTok/YouTube 等）没有服务器扫码，必须走本地浏览器
+      if (this.addSpec && this.addSpec.login_mode === "terminal" && !cdpUrl) {
+        ElementPlus.ElMessage.warning("该平台需在「本地浏览器」中登录：先填入地址（见下方三步指引）再打开");
+        return;
+      }
+      await this.startLogin(this.addDialog.platform, accountName, cdpUrl);
       this.addDialog.visible = false;
     },
 
@@ -1279,7 +1293,8 @@ const app = createApp({
       <el-form label-width="80px">
         <el-form-item label="平台">
           <el-select v-model="addDialog.platform" style="width: 240px">
-            <el-option v-for="p in qrcodePlatforms" :key="p.key" :value="p.key" :label="platformIcon(p.key) + '  ' + p.name" />
+            <el-option v-for="p in loginPlatforms" :key="p.key" :value="p.key"
+                       :label="platformIcon(p.key) + '  ' + p.name + (p.login_mode === 'terminal' ? '（本地浏览器）' : '')" />
           </el-select>
         </el-form-item>
         <el-form-item label="账号名">
@@ -1317,7 +1332,9 @@ const app = createApp({
       </div>
 
       <div class="hint-box">
-        Bilibili / YouTube 登录需要在服务器本地终端执行 sau 命令，此处仅支持扫码登录的平台。
+        除 Bilibili（依赖 biliup 命令行，需终端登录后「上传cookie」）外，各平台均可在本页完成登录。
+        标注「本地浏览器」的平台（TikTok/YouTube/Instagram/Facebook/X）没有服务器扫码，必须走下方三步指引；
+        海外平台在本地浏览器登录还有额外好处——直接用你本机的网络环境，无需服务器代理。
       </div>
       <template #footer>
         <el-button @click="addDialog.visible = false">取消</el-button>
@@ -1364,6 +1381,9 @@ const app = createApp({
           {{ platformIcon(loginDialog.task.platform) }} {{ platformName(loginDialog.task.platform) }} · {{ loginDialog.task.account }}
         </div>
         <img v-if="loginDialog.task.qrcode_data_url" :src="loginDialog.task.qrcode_data_url" alt="登录二维码" />
+        <div v-else-if="loginDialogSpec && loginDialogSpec.login_mode === 'terminal'" style="font-size:13.5px;color:#606266;padding:16px 4px;line-height:1.8">
+          🔐 已在你本机 Chrome 打开登录页，请在其中完成登录（账号密码 / 两步验证），完成后这里会自动关闭
+        </div>
         <div v-else class="qr-spinner"></div>
         <div style="font-size:13px;color:#606266">{{ loginDialog.task.message }}</div>
         <div v-if="loginDialog.task.status === 'failed'" class="error-text">{{ loginDialog.task.error }}</div>

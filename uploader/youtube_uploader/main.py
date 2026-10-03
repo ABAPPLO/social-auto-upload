@@ -68,15 +68,20 @@ async def cookie_auth(account_file) -> bool:
             await browser.close()
 
 
-async def youtube_cookie_gen(account_file, headless: bool = False):
+async def youtube_cookie_gen(account_file, headless: bool = False, cdp_url: str | None = None):
     """交互式登录：开浏览器让用户登录 Google/YouTube，进入频道页后保存 storage_state。"""
     async with async_playwright() as playwright:
-        # 登录必须显形，让用户输账号密码/二步验证
-        browser = await chromium_launch_with_fallback(
-            playwright, headless=False, channel="chrome",
-            proxy={"server": _PROXY} if _PROXY else None,
-        )
-        context = await new_browser_context(browser, )
+        if cdp_url:
+            # 本地浏览器登录：用户本机 Chrome 自带网络环境，跳过服务器代理
+            browser = await playwright.chromium.connect_over_cdp(cdp_url)
+            context = browser.contexts[0] if browser.contexts else await new_browser_context(browser, )
+        else:
+            # 登录必须显形，让用户输账号密码/二步验证
+            browser = await chromium_launch_with_fallback(
+                playwright, headless=False, channel="chrome",
+                proxy={"server": _PROXY} if _PROXY else None,
+            )
+            context = await new_browser_context(browser, )
         context = await set_init_script(context)
         page = await context.new_page()
         await page.goto(STUDIO_URL, wait_until="domcontentloaded")
@@ -98,14 +103,14 @@ async def youtube_cookie_gen(account_file, headless: bool = False):
                                    "登录成功" if ok else "登录超时", account_file, page.url)
 
 
-async def youtube_setup(account_file, handle: bool = False, return_detail: bool = False, headless: bool = False):
+async def youtube_setup(account_file, handle: bool = False, return_detail: bool = False, headless: bool = False, cdp_url: str | None = None):
     """校验登录态，失效且 handle=True 时拉起交互式登录。"""
     if not Path(account_file).exists() or not await cookie_auth(account_file):
         if not handle:
             result = _build_login_result(False, "cookie_invalid", "登录态不存在或已失效", account_file)
             return result if return_detail else False
         youtube_logger.info(_msg("🥹", "YouTube 登录态不存在或失效，准备打开浏览器登录"))
-        result = await youtube_cookie_gen(account_file, headless=headless)
+        result = await youtube_cookie_gen(account_file, headless=headless, cdp_url=cdp_url)
         return result if return_detail else result["success"]
     result = _build_login_result(True, "cookie_valid", "登录态有效", account_file)
     return result if return_detail else True

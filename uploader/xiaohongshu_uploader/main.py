@@ -222,6 +222,7 @@ async def xiaohongshu_setup(
     return_detail=False,
     qrcode_callback=None,
     headless: bool = LOCAL_CHROME_HEADLESS,
+    cdp_url: str | None = None,
 ):
     if not os.path.exists(account_file) or not await cookie_auth(account_file):
         if not handle:
@@ -232,6 +233,7 @@ async def xiaohongshu_setup(
             account_file,
             qrcode_callback=qrcode_callback,
             headless=headless,
+            cdp_url=cdp_url,
         )
         return result if return_detail else result["success"]
 
@@ -245,6 +247,7 @@ async def xiaohongshu_cookie_gen(
     poll_interval: int = 3,
     max_checks: int = 100,
     headless: bool = LOCAL_CHROME_HEADLESS,
+    cdp_url: str | None = None,
 ):
     if headless:
         xiaohongshu_logger.info(_msg("🖼️", "小红书登录将以无头模式运行，小人会输出终端二维码并保存本地二维码图片"))
@@ -253,8 +256,14 @@ async def xiaohongshu_cookie_gen(
     account_path.parent.mkdir(parents=True, exist_ok=True)
 
     async with async_playwright() as playwright:
-        browser = await direct_chromium_launch(playwright, headless=headless, channel="chromium")
-        context = await new_browser_context(browser, )
+        if cdp_url:
+            browser = await playwright.chromium.connect_over_cdp(cdp_url)
+            context = browser.contexts[0] if browser.contexts else await new_browser_context(browser, )
+            should_close_context = False
+        else:
+            browser = await direct_chromium_launch(playwright, headless=headless, channel="chromium")
+            context = await new_browser_context(browser, )
+            should_close_context = True
         context = await set_init_script(context)
         qrcode_path = None
         qrcode_info = None
@@ -301,7 +310,8 @@ async def xiaohongshu_cookie_gen(
                 xiaohongshu_logger.info(_msg("🧹", f"临时二维码文件已清理: {qrcode_path}"))
             if not result["success"]:
                 xiaohongshu_logger.error(_msg("😢", f"登录失败: {result['message']}"))
-            await context.close()
+            if should_close_context:
+                await context.close()
             await browser.close()
         return result
 

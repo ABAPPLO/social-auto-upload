@@ -186,7 +186,10 @@ def _sanitize_cdp_url(value) -> str:
 async def start_login(platform: str, body: dict) -> dict:
     spec = _platform_or_400(platform)
     account_name = _validate_account_name(str(body.get("account_name") or ""))
-    if spec.login_mode == LOGIN_MODE_TERMINAL:
+    cdp_url = _sanitize_cdp_url(body.get("cdp_url"))
+    if spec.login_mode == LOGIN_MODE_TERMINAL and not cdp_url:
+        # 终端登录平台（Bilibili/TikTok/YouTube 等）只有在走本地浏览器（CDP）时
+        # 才能在网页上登录；否则保持终端指引
         raise _bad_request(spec.terminal_login_hint)
     if spec.setup is None:
         raise _bad_request(f"{spec.name}暂不支持网页扫码登录")
@@ -202,7 +205,6 @@ async def start_login(platform: str, body: dict) -> dict:
         raise _bad_request("该账号已有登录任务进行中，请在已打开的登录窗口里完成操作或等待其结束")
 
     account_file = registry.account_file_path(platform, account_name)
-    cdp_url = _sanitize_cdp_url(body.get("cdp_url"))
 
     def on_qrcode(payload: dict) -> None:
         data_url = str(payload.get("image_data_url") or "")
@@ -211,18 +213,22 @@ async def start_login(platform: str, body: dict) -> dict:
 
     task = manager.create("login", platform, account_name, summary="扫码登录" if not cdp_url else "本地浏览器登录")
     task_id = task["id"]
-    # 支持 cdp_url 的平台（如抖音/快手）可改在用户本机 Chrome 里完成登录：
-    # 登录页在本机浏览器新标签页打开，用户原生完成扫码/滑块/短信，服务器直接抓取登录态
+    # 按平台 setup 的签名按需传参：cdp_url 走本地浏览器登录（登录页在本机
+    # Chrome 打开，服务器直接抓取登录态）；部分平台（如 YouTube）无 qrcode_callback
     setup_kwargs: dict[str, Any] = {}
-    if cdp_url and "cdp_url" in inspect.signature(spec.setup).parameters:
+    params = inspect.signature(spec.setup).parameters
+    if "qrcode_callback" in params:
+        setup_kwargs["qrcode_callback"] = on_qrcode
+    if cdp_url and "cdp_url" in params:
         setup_kwargs["cdp_url"] = cdp_url
+    elif cdp_url:
+        raise _bad_request(f"{spec.name}暂不支持本地浏览器登录，请在终端登录后通过「上传cookie」推送")
 
     async def run_login() -> dict:
         result = await spec.setup(
             str(account_file),
             handle=True,
             return_detail=True,
-            qrcode_callback=on_qrcode,
             headless=True,
             **setup_kwargs,
         )
