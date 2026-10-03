@@ -207,5 +207,23 @@ class TaskAssistBindingTests(unittest.TestCase):
         self.assertIn("assist_frame_url", manager.get(task["id"]))
 
 
+class CdpUrlSanitizerTests(unittest.TestCase):
+    def test_empty_and_valid_pass_through(self):
+        from sau_webapp.routes import _sanitize_cdp_url
+
+        self.assertEqual(_sanitize_cdp_url(""), "")
+        self.assertEqual(_sanitize_cdp_url("   "), "")
+        self.assertEqual(_sanitize_cdp_url(" http://127.0.0.1:9222 "), "http://127.0.0.1:9222")
+
+    def test_rejects_bad_scheme_or_too_long(self):
+        from fastapi import HTTPException
+
+        from sau_webapp.routes import _sanitize_cdp_url
+
+        for bad in ("chrome://debug", "ftp://x", "9222", "x" * 300):
+            with self.assertRaises(HTTPException):
+                _sanitize_cdp_url(bad)
+
+
 if __name__ == "__main__":
     unittest.main()

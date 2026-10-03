@@ -167,6 +167,22 @@ def _validate_account_name(account_name: str) -> str:
     return account_name
 
 
+def _sanitize_cdp_url(value) -> str:
+    """校验可选的本地浏览器调试地址（Chrome CDP）。
+
+    空 = 服务器自己的 headless 浏览器（默认）；非空 = 在用户本机弹出的
+    Chrome 里完成登录，登录态由服务器直接抓取保存。
+    """
+    url = str(value or "").strip()
+    if not url:
+        return ""
+    if not url.startswith(("http://", "https://")):
+        raise _bad_request("本地浏览器地址需以 http:// 或 https:// 开头，例如 http://127.0.0.1:9222")
+    if len(url) > 200:
+        raise _bad_request("本地浏览器地址过长")
+    return url
+
+
 @router.post("/accounts/{platform}/login")
 async def start_login(platform: str, body: dict) -> dict:
     spec = _platform_or_400(platform)
@@ -187,19 +203,24 @@ async def start_login(platform: str, body: dict) -> dict:
         raise _bad_request("该账号已有登录任务进行中，请在已打开的登录窗口里完成操作或等待其结束")
 
     account_file = registry.account_file_path(platform, account_name)
+    cdp_url = _sanitize_cdp_url(body.get("cdp_url"))
 
     def on_qrcode(payload: dict) -> None:
         data_url = str(payload.get("image_data_url") or "")
         if data_url:
             manager.set_qrcode(task_id, data_url)
 
-    task = manager.create("login", platform, account_name, summary="扫码登录")
+    task = manager.create("login", platform, account_name, summary="扫码登录" if not cdp_url else "本地浏览器登录")
     task_id = task["id"]
     # 支持 ManualAssist 协议的平台（如抖音）附带远程人工协助通道：
-    # 登录等待期间推实时画面，滑块/安全验证可在网页画面里手动完成
+    # 登录等待期间推实时画面，滑块/安全验证可在网页画面里手动完成。
+    # 支持 cdp_url 的平台（如抖音/快手）可改在用户本机 Chrome 里完成登录。
     setup_kwargs: dict[str, Any] = {}
-    if "assist" in inspect.signature(spec.setup).parameters:
+    params = inspect.signature(spec.setup).parameters
+    if "assist" in params:
         setup_kwargs["assist"] = assist.TaskAssist(task_id)
+    if cdp_url and "cdp_url" in params:
+        setup_kwargs["cdp_url"] = cdp_url
 
     async def run_login() -> dict:
         result = await spec.setup(

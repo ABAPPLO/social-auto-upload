@@ -447,6 +447,7 @@ const app = createApp({
         visible: true,
         platform: this.qrcodePlatforms.length ? this.qrcodePlatforms[0].key : "douyin",
         accountName: "",
+        cdpUrl: "",
       };
     },
 
@@ -456,15 +457,17 @@ const app = createApp({
         ElementPlus.ElMessage.warning("请填写账号名（自定义名称，用于区分不同账号）");
         return;
       }
-      await this.startLogin(this.addDialog.platform, accountName);
+      await this.startLogin(this.addDialog.platform, accountName, (this.addDialog.cdpUrl || "").trim());
       this.addDialog.visible = false;
     },
 
-    async startLogin(platform, accountName) {
+    async startLogin(platform, accountName, cdpUrl = "") {
       try {
+        const body = { account_name: accountName };
+        if (cdpUrl) body.cdp_url = cdpUrl;
         const data = await this.api(`/api/accounts/${platform}/login`, {
           method: "POST",
-          body: { account_name: accountName },
+          body,
         });
         this.loginDialog = { visible: true, task: data.task, timer: null };
         this.pollLoginTask();
@@ -1371,9 +1374,15 @@ const app = createApp({
         <el-form-item label="账号名">
           <el-input v-model="addDialog.accountName" placeholder="自定义账号名（如 main / 小号2）" />
         </el-form-item>
+        <el-form-item label="本地浏览器">
+          <el-input v-model="addDialog.cdpUrl" placeholder="可选，留空用服务器浏览器，如 http://127.0.0.1:9222" />
+        </el-form-item>
       </el-form>
       <div class="hint-box">
-        Bilibili / YouTube 登录需要在服务器本地终端执行 sau 命令，此处仅支持扫码登录的平台。
+        Bilibili / YouTube 登录需要在服务器本地终端执行 sau 命令，此处仅支持扫码登录的平台。<br />
+        <b>本地浏览器登录（推荐，风控最少）</b>：先在自己电脑上启动带调试端口的 Chrome，再在上面填
+        <span class="mono">http://127.0.0.1:9222</span>（经 ssh -R 隧道时）——登录页面会在你本机
+        Chrome 的新标签页打开，像平常一样扫码/拖滑块/输验证码，完成后 cookie 自动保存到服务器。
       </div>
       <template #footer>
         <el-button @click="addDialog.visible = false">取消</el-button>
