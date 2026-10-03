@@ -55,10 +55,49 @@ class TokenAuthMiddleware:
         await self.app(scope, receive, send)
 
 
+def _register_mcp(app: FastAPI) -> None:
+    """把 sau-mcp 注册到 /mcp，与 Web 控制台共用同一端口同一进程。
+
+    未安装 mcp 依赖（[mcp] 可选组）时静默跳过，控制台照常运行。
+    实现说明：不用 app.mount 挂子应用（Mount 的前缀裁剪与 MCP 内部路由
+    组合后路径对不上），而是把 StreamableHTTPSessionManager 的 ASGI
+    handler 直接注册为路由；其生命周期由 lifespan 托管。
+    """
+    try:
+        from sau_mcp.server import mcp as mcp_server
+    except Exception:
+        return
+    try:
+        mcp_server.streamable_http_app()  # 惰性创建 session manager
+        session_manager = mcp_server.session_manager
+    except Exception:
+        return
+
+    class _McpAsgi:
+        """以 ASGI app 形态包装 session manager（裸函数会被 Starlette 当成
+        request 处理器包装，callable 对象才会按 ASGI 三参调用）。"""
+
+        def __init__(self, session_manager):
+            self._session_manager = session_manager
+
+        async def __call__(self, scope, receive, send):
+            await self._session_manager.handle_request(scope, receive, send)
+
+    from starlette.routing import Route
+
+    app.router.routes.insert(0, Route("/mcp", endpoint=_McpAsgi(session_manager), methods=["GET", "POST", "DELETE"]))
+    app.state.mcp_session = session_manager
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await manager.start_workers()
-    yield
+    mcp_session = getattr(app.state, "mcp_session", None)
+    if mcp_session is not None:
+        async with mcp_session.run():
+            yield
+    else:
+        yield
     await manager.stop_workers()
 
 
@@ -83,9 +122,10 @@ def create_app() -> FastAPI:
     )
     token = os.environ.get("SAU_WEB_TOKEN", "").strip()
     if token:
-        app.add_middleware(TokenAuthMiddleware, token=token)
+        app.add_middleware(TokenAuthMiddleware, token)
     app.include_router(router)
     app.middleware("http")(_static_no_cache)
+    _register_mcp(app)
     if STATIC_DIR.exists():
         app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="webui")
     return app

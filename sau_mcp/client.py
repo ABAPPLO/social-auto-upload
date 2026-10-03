@@ -18,7 +18,13 @@ class SauWebError(RuntimeError):
 
 
 def default_base_url() -> str:
-    return os.environ.get("SAU_WEB_URL", "http://127.0.0.1:8010").rstrip("/")
+    """默认指向本机 sau-web：显式 SAU_WEB_URL 优先，否则跟随服务的 HOST/PORT 变量。"""
+    explicit = os.environ.get("SAU_WEB_URL")
+    if explicit:
+        return explicit.rstrip("/")
+    host = os.environ.get("SAU_WEB_HOST", "127.0.0.1")
+    port = os.environ.get("SAU_WEB_PORT", "8010")
+    return f"http://{host}:{port}"
 
 
 def default_token() -> str:
