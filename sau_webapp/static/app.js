@@ -65,6 +65,11 @@ const app = createApp({
       // 登录远程人工协助：画面上的拖拽轨迹（sx/sy 为相对画面容器的屏幕坐标）
       assistDrag: { active: false, x1: 0, y1: 0, sx1: 0, sy1: 0, sx2: 0, sy2: 0 },
       assistBusy: false,
+      // 短信验证码（登录/发布任务共用提交通道）+ 画面文字输入兜底
+      smsCode: "",
+      smsSubmitting: false,
+      assistText: "",
+      assistTextPoint: null,
 
       // 上传 cookie
       cookieDialog: { visible: false, platform: "bilibili", accountName: "", fileName: "", fileData: null, submitting: false },
@@ -302,6 +307,11 @@ const app = createApp({
     checkVerifyPrompt() {
       for (const task of this.tasks) {
         if (!task.waiting_verify_code || this.verifyPrompted[task.id]) continue;
+        // 登录弹窗正打开且就是该任务时跳过：弹窗里已有内嵌输入框，避免双重提示
+        if (this.loginDialog.visible && this.loginDialog.task && this.loginDialog.task.id === task.id) {
+          this.verifyPrompted = { ...this.verifyPrompted, [task.id]: true };
+          continue;
+        }
         this.verifyPrompted = { ...this.verifyPrompted, [task.id]: true };
         this.promptVerifyCode(task);
         break; // 一次只弹一个
@@ -310,9 +320,10 @@ const app = createApp({
 
     async promptVerifyCode(task) {
       let code = "";
+      const scene = task.type === "login" ? "登录" : "发布";
       try {
         const result = await ElementPlus.ElMessageBox.prompt(
-          `抖音发布需要短信验证码（账号 ${task.account}）。请输入手机收到的验证码：`,
+          `抖音${scene}需要短信验证码（账号 ${task.account}）。请输入手机收到的验证码：`,
           "📱 短信验证码",
           {
             confirmButtonText: "提交验证码",
@@ -536,20 +547,57 @@ const app = createApp({
       const point = this.assistPagePoint(event) || { x: drag.x1, y: drag.y1 };
       const distance = Math.hypot(point.x - drag.x1, point.y - drag.y1);
       if (distance < 8) {
+        this.assistTextPoint = { x: point.x, y: point.y }; // 记住最近点击处，供文字输入兜底
         await this.sendAssistAction("click", { x: point.x, y: point.y });
       } else {
         await this.sendAssistAction("drag", { x1: drag.x1, y1: drag.y1, x2: point.x, y2: point.y });
       }
     },
 
+    async sendAssistText() {
+      const text = (this.assistText || "").trim();
+      const point = this.assistTextPoint;
+      if (!text) return;
+      if (!point) {
+        ElementPlus.ElMessage.warning("请先在下方画面中点击一次输入框位置，再发送文字");
+        return;
+      }
+      const ok = await this.sendAssistAction("type", { x: point.x, y: point.y, text });
+      if (ok !== false) this.assistText = "";
+    },
+
+    async submitLoginSmsCode() {
+      if (this.smsSubmitting || !this.loginDialog.task) return;
+      const code = (this.smsCode || "").trim();
+      if (!/^\d{4,8}$/.test(code)) {
+        ElementPlus.ElMessage.warning("验证码应为 4-8 位数字");
+        return;
+      }
+      this.smsSubmitting = true;
+      try {
+        await this.api(`/api/tasks/${this.loginDialog.task.id}/verify-code`, {
+          method: "POST",
+          body: { code },
+        });
+        this.smsCode = "";
+        ElementPlus.ElMessage.success("验证码已提交，将自动填入并点击验证");
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
+      } finally {
+        this.smsSubmitting = false;
+      }
+    },
+
     async sendAssistAction(action, body) {
-      if (this.assistBusy || !this.loginDialog.task) return;
+      if (this.assistBusy || !this.loginDialog.task) return false;
       this.assistBusy = true;
       try {
         await this.api(`/api/tasks/${this.loginDialog.task.id}/assist/${action}`, { method: "POST", body });
         this.refreshLoginTask(); // 立刻拉一帧，尽快看到操作结果
+        return true;
       } catch (e) {
         ElementPlus.ElMessage.warning(e.message);
+        return false;
       } finally {
         this.assistBusy = false;
       }
@@ -1371,6 +1419,16 @@ const app = createApp({
         <div style="font-size:14px">
           {{ platformIcon(loginDialog.task.platform) }} {{ platformName(loginDialog.task.platform) }} · {{ loginDialog.task.account }}
         </div>
+
+        <el-alert v-if="loginDialog.task.waiting_verify_code" type="warning" :closable="false" show-icon style="margin:10px 0"
+                  title="📱 需要短信验证码"
+                  description="抖音登录触发了短信二次验证，请在下方输入手机收到的验证码，提交后会自动填入并点击验证。" />
+        <div v-if="loginDialog.task.waiting_verify_code" class="sms-box">
+          <el-input v-model="smsCode" placeholder="输入手机收到的短信验证码（4-8 位数字）" maxlength="8"
+                    @keyup.enter="submitLoginSmsCode" />
+          <el-button type="primary" :loading="smsSubmitting" @click="submitLoginSmsCode">提交验证码</el-button>
+        </div>
+
         <img v-if="loginDialog.task.qrcode_data_url" :src="loginDialog.task.qrcode_data_url" alt="登录二维码" />
         <div v-else class="qr-spinner"></div>
         <div style="font-size:13px;color:#606266">{{ loginDialog.task.message }}</div>
@@ -1387,6 +1445,11 @@ const app = createApp({
                @mousedown="onAssistMouseDown" @mousemove="onAssistMouseMove" @mouseup="onAssistMouseUp" @mouseleave="onAssistMouseUp">
             <img ref="assistImg" :src="loginDialog.task.assist_frame_url" alt="登录页面实时画面" draggable="false" />
             <div v-if="assistDrag.active" class="assist-line" :style="assistLineStyle"></div>
+          </div>
+          <div class="assist-input-row">
+            <el-input v-model="assistText" size="small" placeholder="兜底输入：先点击画面中的输入框，再在此输入文字并发送"
+                      @keyup.enter="sendAssistText" />
+            <el-button size="small" :disabled="assistBusy" @click="sendAssistText">发送文字</el-button>
           </div>
           <div v-if="loginDialog.task.status === 'failed'" class="assist-tip">
             超时时页面停在：<span class="mono">{{ loginDialog.task.assist_page_url || '未知' }}</span>（最后画面如上，可用于判断是被风控拦截还是页面未跳转）

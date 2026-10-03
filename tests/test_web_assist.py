@@ -144,6 +144,18 @@ class HumanInputTests(unittest.TestCase):
         page.mouse.move = AsyncMock(side_effect=RuntimeError("closed"))
         self.assertFalse(asyncio.run(web_assist.human_drag(page, 1, 1, 2, 2)))
 
+    def test_human_type_clicks_then_types(self):
+        page = make_fake_page()
+        page.keyboard = AsyncMock()
+        ok = asyncio.run(web_assist.human_type(page, 30, 40, "123456"))
+        self.assertTrue(ok)
+        self.assertEqual(page.mouse.clicks, [(30, 40)])
+        page.keyboard.type.assert_awaited_once_with("123456", delay=45)
+
+    def test_human_type_empty_text_returns_false(self):
+        page = make_fake_page()
+        self.assertFalse(asyncio.run(web_assist.human_type(page, 1, 1, "")))
+
 
 class TaskAssistBindingTests(unittest.TestCase):
     def test_task_assist_updates_task_state(self):

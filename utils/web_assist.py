@@ -157,3 +157,19 @@ async def human_drag(page, x1: float, y1: float, x2: float, y2: float) -> bool:
         return True
     except Exception:
         return False
+
+
+async def human_type(page, x: float, y: float, text: str) -> bool:
+    """先点击画面指定位置（输入框），再逐字键入文本。短信验证码兜底/任意文字输入用。"""
+    text = str(text or "")
+    if not text:
+        return False
+    try:
+        await page.mouse.move(x, y)
+        await asyncio.sleep(0.1)
+        await page.mouse.click(x, y)
+        await asyncio.sleep(0.15)
+        await page.keyboard.type(text, delay=45)
+        return True
+    except Exception:
+        return False

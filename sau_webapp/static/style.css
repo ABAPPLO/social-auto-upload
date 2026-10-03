@@ -566,3 +566,15 @@ body {
   transform-origin: 0 0;
   pointer-events: none;
 }
+
+.sms-box {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.assist-input-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}

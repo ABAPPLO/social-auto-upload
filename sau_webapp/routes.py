@@ -566,12 +566,12 @@ def get_task(task_id: str) -> dict:
 
 @router.post("/tasks/{task_id}/verify-code")
 def submit_task_verify_code(task_id: str, body: dict) -> dict:
-    """提交抖音发布过程中触发的短信验证码（写入 verify_code.txt，由发布循环读取）。"""
+    """提交抖音短信验证码（写入 verify_code.txt，由发布/登录循环读取后自动填入提交）。"""
     task = manager.get(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="任务不存在或已被清理")
-    if task["type"] != "upload" or task["platform"] != "douyin":
-        raise _bad_request("只有抖音发布任务会需要短信验证码")
+    if task["platform"] != "douyin" or task["type"] not in ("upload", "login"):
+        raise _bad_request("只有抖音任务会需要短信验证码")
     if task["status"] not in ("running", "pending"):
         raise _bad_request(f"任务已结束（{task['status']}），无需再提交验证码")
     code = str(body.get("code") or "").strip()
@@ -614,13 +614,21 @@ async def _run_assist_action(task_id: str, body: dict, action: str) -> dict:
         y = web_assist.clamp_coord(_assist_coord(body, "y"), height)
         ok = await web_assist.human_click(page, x, y)
         label = f"点击 ({x:.0f}, {y:.0f})"
-    else:
+    elif action == "drag":
         x1 = web_assist.clamp_coord(_assist_coord(body, "x1"), width)
         y1 = web_assist.clamp_coord(_assist_coord(body, "y1"), height)
         x2 = web_assist.clamp_coord(_assist_coord(body, "x2"), width)
         y2 = web_assist.clamp_coord(_assist_coord(body, "y2"), height)
         ok = await web_assist.human_drag(page, x1, y1, x2, y2)
         label = f"拖拽 ({x1:.0f},{y1:.0f}) → ({x2:.0f},{y2:.0f})"
+    else:  # type：先点输入框再键入文字（短信验证码等任意文本的兜底通道）
+        x = web_assist.clamp_coord(_assist_coord(body, "x"), width)
+        y = web_assist.clamp_coord(_assist_coord(body, "y"), height)
+        text = str(body.get("text") or "")[:200]
+        if not text:
+            raise _bad_request("text 不能为空")
+        ok = await web_assist.human_type(page, x, y, text)
+        label = f"输入 \"{text[:20]}\" @ ({x:.0f}, {y:.0f})"
     if not ok:
         raise _bad_request("操作发送失败，页面可能正在跳转；等画面刷新后再试")
     return {"ok": True, "message": f"已发送{label}"}
@@ -636,3 +644,9 @@ async def assist_click(task_id: str, body: dict) -> dict:
 async def assist_drag(task_id: str, body: dict) -> dict:
     """在登录实时画面上拖拽（滑块验证：从起点拖到终点）。"""
     return await _run_assist_action(task_id, body, action="drag")
+
+
+@router.post("/tasks/{task_id}/assist/type")
+async def assist_type(task_id: str, body: dict) -> dict:
+    """点击画面指定位置并键入文字（先点输入框再打字的兜底输入通道）。"""
+    return await _run_assist_action(task_id, body, action="type")
