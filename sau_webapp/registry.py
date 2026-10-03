@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from uploader.base_video import BaseVideoUploader
+from uploader.bilibili_uploader.web_login import bilibili_setup
 from uploader.facebook_uploader.main import facebook_setup
 from uploader.instagram_uploader.main import instagram_setup
 from uploader.baijiahao_uploader.main import baijiahao_setup
@@ -98,7 +99,8 @@ PLATFORM_SPECS: dict[str, PlatformSpec] = {
     "bilibili": PlatformSpec(
         key="bilibili",
         name="Bilibili",
-        login_mode=LOGIN_MODE_TERMINAL,
+        login_mode=LOGIN_MODE_QRCODE,
+        setup=bilibili_setup,
         supports_schedule=True,
         terminal_login_hint=(
             "Bilibili 登录依赖 biliup 命令行交互：在任意装有本项目的电脑终端执行 "

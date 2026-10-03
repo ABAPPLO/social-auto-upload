@@ -1332,9 +1332,9 @@ const app = createApp({
       </div>
 
       <div class="hint-box">
-        除 Bilibili（依赖 biliup 命令行，需终端登录后「上传cookie」）外，各平台均可在本页完成登录。
-        标注「本地浏览器」的平台（TikTok/YouTube/Instagram/Facebook/X）没有服务器扫码，必须走下方三步指引；
-        海外平台在本地浏览器登录还有额外好处——直接用你本机的网络环境，无需服务器代理。
+        各平台均可在本页完成登录。标注「本地浏览器」的平台（TikTok/YouTube/Instagram/Facebook/X）没有服务器扫码，
+        必须走下方三步指引；海外平台在本地浏览器登录还有额外好处——直接用你本机的网络环境，无需服务器代理。
+        Bilibili 由服务器驱动 biliup 生成二维码，在本页扫码即可，无需终端命令。
       </div>
       <template #footer>
         <el-button @click="addDialog.visible = false">取消</el-button>
