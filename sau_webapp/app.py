@@ -68,7 +68,12 @@ def _register_mcp(app: FastAPI) -> None:
     except Exception:
         return
     try:
-        mcp_server.streamable_http_app()  # 惰性创建 session manager
+        # 关闭 DNS 重绑定防护的 Host 校验（默认只放行 127.0.0.1，局域网 Agent 用
+        # 服务器 IP 访问 /mcp 会得到 421）。与控制台同一定位：可信内网单用户。
+        from mcp.server.transport_security import TransportSecuritySettings
+
+        security = TransportSecuritySettings(enable_dns_rebinding_protection=False)
+        mcp_server.streamable_http_app(transport_security=security)  # 惰性创建 session manager
         session_manager = mcp_server.session_manager
     except Exception:
         return
