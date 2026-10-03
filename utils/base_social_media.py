@@ -32,6 +32,25 @@ async def set_init_script(context):
     return context
 
 
+async def chromium_launch_with_fallback(playwright, **kwargs):
+    """启动 Chromium；channel="chrome" 而系统未装 Google Chrome 时退回内置 chromium。
+
+    开发机（Windows/macOS）常装了 Chrome，用 channel="chrome" 指纹更真实；
+    服务器一般只有 patchright 自带的 chromium——登录/上传不应因没装
+    系统 Chrome 直接失败，自动降级并留一条日志。
+    """
+    try:
+        return await playwright.chromium.launch(**kwargs)
+    except Exception as exc:
+        message = str(exc)
+        if kwargs.get("channel") != "chrome" or "not found" not in message:
+            raise
+        from loguru import logger
+
+        logger.warning(f"系统未安装 Google Chrome，退回使用内置 Chromium（{message.splitlines()[0][:100]}）")
+        return await playwright.chromium.launch(**{**kwargs, "channel": "chromium"})
+
+
 async def direct_chromium_launch(playwright, **kwargs):
     """国内平台专用：启动 chromium 并强制直连。
 
@@ -41,7 +60,7 @@ async def direct_chromium_launch(playwright, **kwargs):
     海外平台不走此助手，由 get_platform_proxy 显式指定代理。
     """
     kwargs["args"] = [*kwargs.pop("args", []), "--no-proxy-server"]
-    return await playwright.chromium.launch(**kwargs)
+    return await chromium_launch_with_fallback(playwright, **kwargs)
 
 
 # 用浏览器真实版本号 + Windows 平台段生成 UA：UA 声称的 Chrome 版本与实际

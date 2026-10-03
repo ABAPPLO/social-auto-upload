@@ -18,7 +18,7 @@ from patchright.async_api import Page, Playwright, async_playwright
 
 from conf import DEBUG_MODE
 from uploader.base_video import BaseVideoUploader
-from utils.base_social_media import set_init_script, new_browser_context
+from utils.base_social_media import chromium_launch_with_fallback, set_init_script, new_browser_context
 from utils.log import youtube_logger
 from utils.network import get_platform_proxy
 
@@ -48,8 +48,8 @@ def _build_login_result(success, status, message, account_file, current_url=""):
 async def cookie_auth(account_file) -> bool:
     """登录态是否仍有效：带 cookie 打开 Studio，没被踢到 Google 登录页且进入了频道页即有效。"""
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(
-            headless=True, channel="chrome",
+        browser = await chromium_launch_with_fallback(
+            playwright, headless=True, channel="chrome",
             proxy={"server": _PROXY} if _PROXY else None,
         )
         try:
@@ -72,8 +72,8 @@ async def youtube_cookie_gen(account_file, headless: bool = False):
     """交互式登录：开浏览器让用户登录 Google/YouTube，进入频道页后保存 storage_state。"""
     async with async_playwright() as playwright:
         # 登录必须显形，让用户输账号密码/二步验证
-        browser = await playwright.chromium.launch(
-            headless=False, channel="chrome",
+        browser = await chromium_launch_with_fallback(
+            playwright, headless=False, channel="chrome",
             proxy={"server": _PROXY} if _PROXY else None,
         )
         context = await new_browser_context(browser, )
@@ -202,8 +202,8 @@ class YouTubeVideo(BaseVideoUploader):
         self.headless = headless
 
     async def upload(self, playwright: Playwright) -> None:
-        browser = await playwright.chromium.launch(
-            headless=self.headless, channel="chrome",
+        browser = await chromium_launch_with_fallback(
+            playwright, headless=self.headless, channel="chrome",
             proxy={"server": _PROXY} if _PROXY else None,
         )
         context = await new_browser_context(browser, storage_state=self.account_file)
