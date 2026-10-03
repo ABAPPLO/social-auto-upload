@@ -113,6 +113,18 @@ const app = createApp({
     currentSpec() {
       return this.meta.platforms.find((p) => p.key === this.form.platform) || null;
     },
+    // 添加账号对话框当前选中平台
+    addSpec() {
+      return this.meta.platforms.find((p) => p.key === this.addDialog.platform) || null;
+    },
+    // 本地浏览器（CDP）登录分步指引的命令
+    cdpChromeCmd() {
+      return '"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9222 --user-data-dir=C:\\sau-chrome';
+    },
+    cdpSshCmd() {
+      // ssh 目标跟随当前访问的控制台地址，换服务器部署也不用改页面
+      return `ssh applo@${window.location.hostname || "10.168.1.109"} -R 9222:127.0.0.1:9222 -N`;
+    },
     qrcodePlatforms() {
       return this.meta.platforms.filter((p) => p.login_mode === "qrcode");
     },
@@ -422,6 +434,45 @@ const app = createApp({
         accountName: "",
         cdpUrl: "",
       };
+    },
+
+    // ------------------------------------------------------------------ 复制 & 本地浏览器登录
+
+    async copyText(text) {
+      // 局域网 http 下 navigator.clipboard 不可用（非安全上下文），优先用 execCommand 兜底
+      let ok = false;
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+          ok = true;
+        }
+      } catch (e) {
+        ok = false;
+      }
+      if (!ok) {
+        const box = document.createElement("textarea");
+        box.value = text;
+        box.style.position = "fixed";
+        box.style.opacity = "0";
+        document.body.appendChild(box);
+        box.select();
+        try {
+          ok = document.execCommand("copy");
+        } catch (e) {
+          ok = false;
+        }
+        document.body.removeChild(box);
+      }
+      if (ok) {
+        ElementPlus.ElMessage.success("已复制，去粘贴执行吧");
+      } else {
+        ElementPlus.ElMessage.error("复制失败，请手动选中命令复制");
+      }
+    },
+
+    fillCdpUrl() {
+      this.addDialog.cdpUrl = "http://127.0.0.1:9222";
+      ElementPlus.ElMessage.success("已填入本地浏览器地址");
     },
 
     async submitAddAccount() {
@@ -1235,14 +1286,38 @@ const app = createApp({
           <el-input v-model="addDialog.accountName" placeholder="自定义账号名（如 main / 小号2）" />
         </el-form-item>
         <el-form-item label="本地浏览器">
-          <el-input v-model="addDialog.cdpUrl" placeholder="可选，留空用服务器浏览器，如 http://127.0.0.1:9222" />
+          <el-input v-model="addDialog.cdpUrl" placeholder="可选，留空用服务器浏览器，如 http://127.0.0.1:9222">
+            <template #append>
+              <el-button v-if="addSpec && addSpec.supports_cdp" @click="fillCdpUrl">填入</el-button>
+            </template>
+          </el-input>
         </el-form-item>
       </el-form>
+
+      <div v-if="addSpec && addSpec.supports_cdp" class="cdp-steps">
+        <div class="cdp-steps-title">🧭 本地浏览器登录（推荐，风控最少）：三步</div>
+        <div class="cdp-step">
+          <div class="cdp-step-head">① 本机启动带调试端口的 Chrome<small>（Win+R 粘贴运行；Chrome 装在别处就改路径，Edge 同理）</small></div>
+          <div class="copy-row">
+            <code>{{ cdpChromeCmd }}</code>
+            <el-button size="small" type="primary" plain @click="copyText(cdpChromeCmd)">复制</el-button>
+          </div>
+        </div>
+        <div class="cdp-step">
+          <div class="cdp-step-head">② 打通隧道<small>（Windows 自带 ssh，PowerShell 运行，窗口保持开着）</small></div>
+          <div class="copy-row">
+            <code>{{ cdpSshCmd }}</code>
+            <el-button size="small" type="primary" plain @click="copyText(cdpSshCmd)">复制</el-button>
+          </div>
+        </div>
+        <div class="cdp-step">
+          <div class="cdp-step-head">③ 点上方「填入」再「打开登录二维码」<small>（登录页会在你本机 Chrome 新标签页打开）</small></div>
+          <div class="cdp-note">像平常一样扫码 / 拖滑块 / 输验证码，完成后 cookie 自动保存到服务器；<span class="mono">C:\sau-chrome</span> 目录下次继续复用（指纹延续，风控更友好）。</div>
+        </div>
+      </div>
+
       <div class="hint-box">
-        Bilibili / YouTube 登录需要在服务器本地终端执行 sau 命令，此处仅支持扫码登录的平台。<br />
-        <b>本地浏览器登录（推荐，风控最少）</b>：先在自己电脑上启动带调试端口的 Chrome，再在上面填
-        <span class="mono">http://127.0.0.1:9222</span>（经 ssh -R 隧道时）——登录页面会在你本机
-        Chrome 的新标签页打开，像平常一样扫码/拖滑块/输验证码，完成后 cookie 自动保存到服务器。
+        Bilibili / YouTube 登录需要在服务器本地终端执行 sau 命令，此处仅支持扫码登录的平台。
       </div>
       <template #footer>
         <el-button @click="addDialog.visible = false">取消</el-button>

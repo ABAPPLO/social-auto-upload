@@ -226,6 +226,15 @@ def account_file_path(platform: str, account_name: str) -> Path:
     return sau_cli.resolve_account_file(platform, account_name)
 
 
+def _setup_supports_cdp(spec: "PlatformSpec") -> bool:
+    """该平台的 setup() 是否接受 cdp_url（可改在用户本机 Chrome 里登录）。"""
+    import inspect
+
+    if spec.setup is None:
+        return False
+    return "cdp_url" in inspect.signature(spec.setup).parameters
+
+
 def meta_for_frontend() -> list[dict[str, Any]]:
     """给前端渲染表单用的平台元信息。"""
     return [
@@ -236,6 +245,7 @@ def meta_for_frontend() -> list[dict[str, Any]]:
             "terminal_login_hint": spec.terminal_login_hint,
             "supports_note": spec.supports_note,
             "supports_schedule": spec.supports_schedule,
+            "supports_cdp": _setup_supports_cdp(spec),
             "extra_fields": list(spec.extra_fields),
         }
         for spec in PLATFORM_SPECS.values()
