@@ -20,7 +20,6 @@ from utils.login_qrcode import print_terminal_qrcode
 from utils.login_qrcode import remove_qrcode_file
 from utils.login_qrcode import save_data_url_image
 from utils.log import douyin_logger
-from utils import web_assist
 
 DOUYIN_PUBLISH_STRATEGY_IMMEDIATE = "immediate"
 DOUYIN_PUBLISH_STRATEGY_SCHEDULED = "scheduled"
@@ -42,74 +41,6 @@ async def _read_verify_code(code_file: str) -> str:
         return (await asyncio.to_thread(input, "请输入抖音短信验证码（直接回车可稍后重试）: ")).strip()
     except (EOFError, OSError):
         return ""
-
-
-# 二次验证弹窗（抖音统一验证组件 uc_verification / uc-ui-verify_sms）内的验证码输入框。
-# 不能用裸的 input[placeholder*="验证码"]：登录页"手机号登录"Tab 本身就有这种输入框，
-# 扫码页上可见，误判会自动点「获取验证码」给账号发真短信。
-_SMS_VERIFY_INPUT_SELECTORS = (
-    '[class*="uc-verification"] input[placeholder*="验证码"]',
-    '[class*="uc-ui-verify"] input[placeholder*="验证码"]',
-    '[class*="verify_sms"] input[placeholder*="验证码"]',
-    '[class*="security-verify"] input[placeholder*="验证码"]',
-)
-
-
-async def _visible_sms_input(page: Page, relaxed: bool = False):
-    """返回二次验证弹窗里可见的短信验证码输入框，没有则 None。
-
-    relaxed=True（页面已从登录页跳走，如整页验证）时放宽为任意可见
-    验证码输入框——那时页面不再有手机号登录 Tab 的干扰。
-    """
-    selectors = ('input[placeholder*="验证码"]',) if relaxed else _SMS_VERIFY_INPUT_SELECTORS
-    for selector in selectors:
-        locator = page.locator(selector)
-        try:
-            count = min(await locator.count(), 5)
-        except Exception:
-            continue
-        for index in range(count):
-            item = locator.nth(index)
-            try:
-                if await item.is_visible():
-                    return item
-            except Exception:
-                continue
-    return None
-
-
-async def _submit_sms_verify_code(page: Page, sms_input, code: str, code_file: str) -> bool:
-    """填入短信验证码并点「验证」按钮。发布流程与扫码登录共用。"""
-    douyin_logger.info(_msg("✍️", f"已获取验证码，准备填入: {code}"))
-    await sms_input.click()
-    await sms_input.fill(code)
-    douyin_logger.info(_msg("✅", "验证码已填入输入框"))
-    await page.wait_for_timeout(500)
-
-    verify_btn = page.locator('div.uc-ui-verify_sms-verify_button:has-text("验证")').first
-    if await verify_btn.count() and await verify_btn.is_visible():
-        try:
-            await verify_btn.click(force=True)
-            douyin_logger.success(_msg("✅", "已点击「验证」按钮(force)"))
-        except Exception:
-            await page.eval_on_selector('div.uc-ui-verify_sms-verify_button', 'el => el.click()')
-            douyin_logger.success(_msg("✅", "已点击「验证」按钮(JS)"))
-    else:
-        verify_by_text = page.get_by_text("验证", exact=True).first
-        if await verify_by_text.count():
-            await verify_by_text.click(force=True)
-            douyin_logger.success(_msg("✅", "已点击「验证」按钮(text)"))
-        else:
-            douyin_logger.warning(_msg("⚠️", "未找到验证按钮，尝试按Enter"))
-            await page.keyboard.press("Enter")
-
-    if os.path.exists(code_file):
-        os.remove(code_file)
-        douyin_logger.info(_msg("🧹", "验证码文件已清理"))
-
-    await page.wait_for_timeout(3000)
-    douyin_logger.info(_msg("🔄", "验证码处理完成，继续后续流程"))
-    return True
 
 
 def _msg(emoji: str, text: str) -> str:
@@ -203,13 +134,13 @@ async def cookie_auth(account_file):
     return False
 
 
-async def douyin_setup(account_file, handle=False, return_detail=False, qrcode_callback=None, headless: bool = LOCAL_CHROME_HEADLESS, cdp_url: str | None = None, assist: web_assist.ManualAssist | None = None):
+async def douyin_setup(account_file, handle=False, return_detail=False, qrcode_callback=None, headless: bool = LOCAL_CHROME_HEADLESS, cdp_url: str | None = None):
     if not os.path.exists(account_file) or not await cookie_auth(account_file):
         if not handle:
             result = _build_login_result(False, "cookie_invalid", "cookie文件不存在或已失效", account_file)
             return result if return_detail else False
         douyin_logger.info(_msg("🥹", "cookie 失效了，准备打开浏览器重新登录"))
-        result = await douyin_cookie_gen(account_file, qrcode_callback=qrcode_callback, headless=headless, cdp_url=cdp_url, assist=assist)
+        result = await douyin_cookie_gen(account_file, qrcode_callback=qrcode_callback, headless=headless, cdp_url=cdp_url)
         return result if return_detail else result["success"]
 
     result = _build_login_result(True, "cookie_valid", "cookie有效", account_file)
@@ -300,117 +231,47 @@ async def _is_douyin_login_completed(page: Page) -> bool:
     return True
 
 
-async def _wait_with_frames(page: Page, assist, seconds: float) -> None:
-    """等待期间按 FRAME_INTERVAL 节流推帧，保证 Web 控制台画面持续刷新。
-
-    CLI（assist 为 NULL_ASSIST）时 capture_frame 每次都会执行但 on_frame 是
-    空操作；截图开销很小，换取两条路径代码一致。
-    """
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + seconds
-    last_frame = 0.0
-    while True:
-        now = loop.time()
-        remaining = deadline - now
-        if remaining <= 0:
-            return
-        if now - last_frame >= web_assist.FRAME_INTERVAL:
-            last_frame = now
-            data_url = await web_assist.capture_frame(page)
-            if data_url:
-                await assist.on_frame(data_url, page.url)
-        await asyncio.sleep(min(0.35, remaining))
-
-
-async def _wait_for_douyin_login(
-    page: Page,
-    account_file: str,
-    qrcode_info: dict,
-    qrcode_callback=None,
-    poll_interval: int = 3,
-    max_checks: int = 100,
-    assist: web_assist.ManualAssist | None = None,
-) -> dict:
-    assist = assist or web_assist.NULL_ASSIST
+async def _wait_for_douyin_login(page: Page, account_file: str, qrcode_info: dict, qrcode_callback=None, poll_interval: int = 3, max_checks: int = 100) -> dict:
     qrcode_path = Path(qrcode_info["image_path"]) if qrcode_info.get("image_path") else None
     original_url = page.url
     saw_2fa = False
-    last_needs_verify = False
-    code_file = os.path.join(BASE_DIR, "verify_code.txt")
-    assist.attach_page(page)
-    try:
-        for _ in range(max_checks):
-            if await _is_douyin_login_completed(page):
-                douyin_logger.info(_msg("🥳", f"扫码成功，已经跳转到登录后页面: {page.url}"))
-                return _build_login_result(True, "success", "抖音扫码登录成功", account_file, qrcode_info, page.url)
+    for _ in range(max_checks):
+        if await _is_douyin_login_completed(page):
+            douyin_logger.info(_msg("🥳", f"扫码成功，已经跳转到登录后页面: {page.url}"))
+            return _build_login_result(True, "success", "抖音扫码登录成功", account_file, qrcode_info, page.url)
 
-            # 短信二次验证：扫码确认后可能直接在登录页上弹验证码输入（URL 不一定变化），
-            # 必须每轮无条件检测。Web 上下文下 _read_verify_code 会被替换为
-            # verify_code.web_read_verify_code：轮询 verify_code.txt 并点亮任务的
-            # "等待验证码"状态；CLI 上下文回退为终端输入。
-            sms_input = await _visible_sms_input(page, relaxed=(page.url != original_url))
-            if sms_input is not None:
+        # URL 变化 + sessionid 未到位 → 二验流程，继续等
+        if page.url != original_url and not await _is_douyin_login_completed(page):
+            sms_input = page.locator('input[placeholder*="验证码"], input[type="tel"], input[placeholder*="短信"], input[placeholder*="手机号"]')
+            if await sms_input.count() > 0:
                 if not saw_2fa:
-                    douyin_logger.warning(_msg("📱", "检测到抖音短信二次验证，请提交手机收到的验证码（Web 控制台输入框 / CLI 终端）"))
+                    douyin_logger.warning(_msg("⚠️", f"检测到抖音短信/安全二次验证，请在弹出的浏览器中手动输入。等待 sessionid ({_}/{max_checks})"))
                     saw_2fa = True
-                    try:
-                        # 只点验证弹窗容器内的「获取验证码」——登录页手机号 Tab 也有同名按钮，
-                        # 全局文本匹配可能点到它给账号发真短信
-                        get_code_btn = page.locator('[class*="uc-verification"], [class*="uc-ui-verify"], [class*="verify_sms"]').get_by_text("获取验证码").first
-                        if await get_code_btn.count() and await get_code_btn.is_visible():
-                            await get_code_btn.click()
-                            douyin_logger.info(_msg("📤", "已点击「获取验证码」，请查看手机短信"))
-                    except Exception:
-                        pass
-                code = await _read_verify_code(code_file)
-                if code:
-                    if await _submit_sms_verify_code(page, sms_input, code, code_file):
-                        saw_2fa = False  # 提交后重新检测，弹窗可能要求新的验证码
-                await _wait_with_frames(page, assist, poll_interval)
-                continue
+            await asyncio.sleep(poll_interval)
+            continue
 
-            # 滑块/安全验证浮层检测：只在 Web 协助通道下做（CLI 无处展示，省掉 DOM 扫描）
-            if assist is not web_assist.NULL_ASSIST:
-                needs_verify, verify_hit = await web_assist.detect_verification(page)
-                if needs_verify != last_needs_verify:
-                    last_needs_verify = needs_verify
-                    if needs_verify:
-                        douyin_logger.warning(_msg("🤖", f"检测到滑块/安全验证（命中: {verify_hit}），请在 Web 控制台的实时画面里手动完成"))
-                    await assist.on_verify_state(needs_verify, verify_hit)
+        expired_box = page.get_by_text("二维码失效", exact=True).locator("..").first
+        if await expired_box.count() and await expired_box.is_visible():
+            douyin_logger.warning(_msg("😵", "二维码失效了，小人马上去刷新"))
+            await expired_box.click()
+            await asyncio.sleep(1)
+            qrcode_info = await _save_douyin_qrcode(page, account_file, qrcode_path, qrcode_callback=qrcode_callback)
+            qrcode_path = Path(qrcode_info["image_path"]) if qrcode_info.get("image_path") else None
 
-            # URL 变化但还没登录完成（跳转中/中间页），继续等
-            if page.url != original_url:
-                await _wait_with_frames(page, assist, poll_interval)
-                continue
+        await asyncio.sleep(poll_interval)
 
-            expired_box = page.get_by_text("二维码失效", exact=True).locator("..").first
-            if await expired_box.count() and await expired_box.is_visible():
-                douyin_logger.warning(_msg("😵", "二维码失效了，小人马上去刷新"))
-                await expired_box.click()
-                await asyncio.sleep(1)
-                qrcode_info = await _save_douyin_qrcode(page, account_file, qrcode_path, qrcode_callback=qrcode_callback)
-                qrcode_path = Path(qrcode_info["image_path"]) if qrcode_info.get("image_path") else None
-
-            await _wait_with_frames(page, assist, poll_interval)
-
-        # 超时：留最后一帧画面 + 当前 URL，方便事后判断是"没跳转"还是"被风控拦截"
-        douyin_logger.warning(_msg("📍", f"等待超时，页面最终停在: {page.url}"))
-        data_url = await web_assist.capture_frame(page)
-        if data_url:
-            await assist.on_frame(data_url, page.url)
-        return _build_login_result(False, "timeout", "等待抖音扫码登录超时", account_file, qrcode_info, page.url)
-    finally:
-        assist.detach_page()
+    # 超时时记录页面最终位置，方便事后判断是"没跳转"还是"被风控拦截"
+    douyin_logger.warning(_msg("📍", f"等待超时，页面最终停在: {page.url}"))
+    return _build_login_result(False, "timeout", "等待抖音扫码登录超时", account_file, qrcode_info, page.url)
 
 async def douyin_cookie_gen(
     account_file,
     qrcode_callback=None,
     poll_interval: int = 2,
-    # 150 次 × 2s = 5 分钟：风控环境下二维码反复失效重刷、扫码后跳转慢都常见，2 分钟不够
+    # 150 次 × 2s = 5 分钟：本地浏览器登录时用户操作较慢，2 分钟不够
     max_checks: int = 150,
     headless: bool = LOCAL_CHROME_HEADLESS,
     cdp_url: str | None = None,
-    assist: web_assist.ManualAssist | None = None,
 ):
     async with async_playwright() as playwright:
         if cdp_url:
@@ -437,7 +298,6 @@ async def douyin_cookie_gen(
                 qrcode_callback=qrcode_callback,
                 poll_interval=poll_interval,
                 max_checks=max_checks,
-                assist=assist,
             )
             if result["success"]:
                 await asyncio.sleep(2)
@@ -889,8 +749,36 @@ class DouYinVideo(DouYinBaseUploader):
                 pass
 
     async def _submit_sms_verify_code(self, page: Page, sms_input, code: str, code_file: str) -> bool:
-        # 逻辑已提升为模块级函数，与扫码登录的短信二次验证共用
-        return await _submit_sms_verify_code(page, sms_input, code, code_file)
+        douyin_logger.info(_msg("✍️", f"已获取验证码，准备填入: {code}"))
+        await sms_input.click()
+        await sms_input.fill(code)
+        douyin_logger.info(_msg("✅", "验证码已填入输入框"))
+        await page.wait_for_timeout(500)
+
+        verify_btn = page.locator('div.uc-ui-verify_sms-verify_button:has-text("验证")').first
+        if await verify_btn.count() and await verify_btn.is_visible():
+            try:
+                await verify_btn.click(force=True)
+                douyin_logger.success(_msg("✅", "已点击「验证」按钮(force)"))
+            except Exception:
+                await page.eval_on_selector('div.uc-ui-verify_sms-verify_button', 'el => el.click()')
+                douyin_logger.success(_msg("✅", "已点击「验证」按钮(JS)"))
+        else:
+            verify_by_text = page.get_by_text("验证", exact=True).first
+            if await verify_by_text.count():
+                await verify_by_text.click(force=True)
+                douyin_logger.success(_msg("✅", "已点击「验证」按钮(text)"))
+            else:
+                douyin_logger.warning(_msg("⚠️", "未找到验证按钮，尝试按Enter"))
+                await page.keyboard.press("Enter")
+
+        if os.path.exists(code_file):
+            os.remove(code_file)
+            douyin_logger.info(_msg("🧹", "验证码文件已清理"))
+
+        await page.wait_for_timeout(3000)
+        douyin_logger.info(_msg("🔄", "验证码处理完成，继续发布流程"))
+        return True
 
     async def validate_upload_args(self):
         await self.validate_base_args()

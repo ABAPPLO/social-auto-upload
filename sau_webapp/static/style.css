@@ -533,48 +533,4 @@ body {
   .main { padding: 16px; }
 }
 
-/* 登录远程人工协助画面 */
-.assist-tip {
-  font-size: 12.5px;
-  color: #909399;
-  margin: 12px 0 6px;
-  line-height: 1.6;
-  word-break: break-all;
-}
 
-.assist-frame {
-  position: relative;
-  border: 1px solid #dcdfe6;
-  border-radius: 6px;
-  overflow: hidden;
-  cursor: crosshair;
-  user-select: none;
-  background: #f5f7fa;
-}
-
-.assist-frame img {
-  display: block;
-  width: 100%;
-  pointer-events: none; /* 鼠标事件全部由容器统一换算坐标 */
-}
-
-.assist-line {
-  position: absolute;
-  height: 2px;
-  background: #409eff;
-  box-shadow: 0 0 6px rgba(64, 158, 255, 0.8);
-  transform-origin: 0 0;
-  pointer-events: none;
-}
-
-.sms-box {
-  display: flex;
-  gap: 8px;
-  margin: 10px 0;
-}
-
-.assist-input-row {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-}

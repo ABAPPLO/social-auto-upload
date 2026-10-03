@@ -37,9 +37,6 @@ def new_task_id() -> str:
 class TaskManager:
     def __init__(self, upload_concurrency: int = 1, login_concurrency: int = 2):
         self._tasks: dict[str, dict[str, Any]] = {}
-        # 人工协助的实时画面单独存放：单帧 JPEG data URL 一两百 KB，
-        # 混进任务 dict 会让 /api/tasks 列表膨胀，只在单任务查询时并入
-        self._assist_frames: dict[str, dict[str, Any]] = {}
         self._upload_queue: asyncio.Queue[str] = asyncio.Queue()
         self._upload_concurrency = max(1, upload_concurrency)
         self._upload_sem = asyncio.Semaphore(self._upload_concurrency)
@@ -64,9 +61,6 @@ class TaskManager:
             "error": "",
             "waiting_verify_code": False,  # 计算字段：是否正在等短信验证码
             "verify_last_poll": 0.0,  # uploader 验证码钩子最近一次轮询时间戳
-            "assist_needs_verify": False,  # 登录等待中检测到滑块/安全验证
-            "assist_verify_hint": "",
-            "assist_page_url": "",  # 最近一帧对应的页面 URL（超时排查用）
             "created_at": _now(),
             "started_at": "",
             "finished_at": "",
@@ -81,7 +75,6 @@ class TaskManager:
         for old_id in list(self._tasks.keys())[: len(self._tasks) - MAX_TASKS_KEPT]:
             self._tasks.pop(old_id, None)
             self._factories.pop(old_id, None)
-            self._assist_frames.pop(old_id, None)
 
     # ---- 执行调度 ---------------------------------------------------------
 
@@ -170,15 +163,7 @@ class TaskManager:
 
     def get(self, task_id: str) -> dict | None:
         task = self._tasks.get(task_id)
-        if task is None:
-            return None
-        snap = self._snapshot(task)
-        # 实时画面只并入单任务查询（列表接口不带大图）
-        frame = self._assist_frames.get(task_id)
-        if frame:
-            snap["assist_frame_url"] = frame.get("url", "")
-            snap["assist_frame_ts"] = frame.get("ts", 0.0)
-        return snap
+        return self._snapshot(task) if task else None
 
     def list(self, task_type: str | None = None, limit: int = 100) -> list[dict]:
         tasks = [
@@ -203,27 +188,6 @@ class TaskManager:
             return
         task["qrcode_data_url"] = data_url
         task["message"] = "二维码已生成，请使用平台APP扫码确认"
-
-    def set_assist_frame(self, task_id: str, data_url: str, page_url: str = "") -> None:
-        """人工协助通道上报一帧登录页截图。任务结束后不再覆盖——保留最后画面供排查。"""
-        task = self._tasks.get(task_id)
-        if task is None or task.get("status") != "running":
-            return
-        self._assist_frames[task_id] = {"url": data_url, "ts": time.time()}
-        if page_url:
-            task["assist_page_url"] = page_url
-
-    def set_assist_verify(self, task_id: str, needed: bool, hint: str = "") -> None:
-        """滑块/安全验证浮层出现或消失时更新任务提示。"""
-        task = self._tasks.get(task_id)
-        if task is None or task.get("status") != "running":
-            return
-        task["assist_needs_verify"] = bool(needed)
-        task["assist_verify_hint"] = hint
-        if needed:
-            task["message"] = "🤖 需要人工验证——请在下方画面中手动完成（拖滑块/点击）"
-        elif str(task["message"]).startswith("🤖"):
-            task["message"] = "验证已通过，等待登录跳转"
 
 
 manager = TaskManager(

@@ -62,14 +62,6 @@ const app = createApp({
       // 添加账号 / 扫码登录
       addDialog: { visible: false },
       loginDialog: { visible: false, task: null, timer: null },
-      // 登录远程人工协助：画面上的拖拽轨迹（sx/sy 为相对画面容器的屏幕坐标）
-      assistDrag: { active: false, x1: 0, y1: 0, sx1: 0, sy1: 0, sx2: 0, sy2: 0 },
-      assistBusy: false,
-      // 短信验证码（登录/发布任务共用提交通道）+ 画面文字输入兜底
-      smsCode: "",
-      smsSubmitting: false,
-      assistText: "",
-      assistTextPoint: null,
 
       // 上传 cookie
       cookieDialog: { visible: false, platform: "bilibili", accountName: "", fileName: "", fileData: null, submitting: false },
@@ -120,19 +112,6 @@ const app = createApp({
   computed: {
     currentSpec() {
       return this.meta.platforms.find((p) => p.key === this.form.platform) || null;
-    },
-    // 登录协助画面上的拖拽辅助线（相对画面容器的坐标）
-    assistLineStyle() {
-      const d = this.assistDrag;
-      if (!d.active) return {};
-      const len = Math.hypot(d.sx2 - d.sx1, d.sy2 - d.sy1);
-      const angle = (Math.atan2(d.sy2 - d.sy1, d.sx2 - d.sx1) * 180) / Math.PI;
-      return {
-        left: `${d.sx1}px`,
-        top: `${d.sy1}px`,
-        width: `${len}px`,
-        transform: `rotate(${angle}deg)`,
-      };
     },
     qrcodePlatforms() {
       return this.meta.platforms.filter((p) => p.login_mode === "qrcode");
@@ -307,11 +286,6 @@ const app = createApp({
     checkVerifyPrompt() {
       for (const task of this.tasks) {
         if (!task.waiting_verify_code || this.verifyPrompted[task.id]) continue;
-        // 登录弹窗正打开且就是该任务时跳过：弹窗里已有内嵌输入框，避免双重提示
-        if (this.loginDialog.visible && this.loginDialog.task && this.loginDialog.task.id === task.id) {
-          this.verifyPrompted = { ...this.verifyPrompted, [task.id]: true };
-          continue;
-        }
         this.verifyPrompted = { ...this.verifyPrompted, [task.id]: true };
         this.promptVerifyCode(task);
         break; // 一次只弹一个
@@ -320,10 +294,9 @@ const app = createApp({
 
     async promptVerifyCode(task) {
       let code = "";
-      const scene = task.type === "login" ? "登录" : "发布";
       try {
         const result = await ElementPlus.ElMessageBox.prompt(
-          `抖音${scene}需要短信验证码（账号 ${task.account}）。请输入手机收到的验证码：`,
+          `抖音发布需要短信验证码（账号 ${task.account}）。请输入手机收到的验证码：`,
           "📱 短信验证码",
           {
             confirmButtonText: "提交验证码",
@@ -490,120 +463,7 @@ const app = createApp({
         } catch (e) {
           this.stopLoginPolling();
         }
-      }, 1000);
-    },
-
-    async refreshLoginTask() {
-      if (!this.loginDialog.task || !this.loginDialog.timer) return;
-      try {
-        const data = await this.api(`/api/tasks/${this.loginDialog.task.id}`);
-        this.loginDialog.task = data.task;
-      } catch (e) {
-        /* 轮询错误由 pollLoginTask 兜底 */
-      }
-    },
-
-    // ------------------------------------------------------------------ 登录远程人工协助
-
-    assistPagePoint(event) {
-      // 把鼠标位置换算成截图原始像素坐标（截图可能被缩放显示）
-      const img = this.$refs.assistImg;
-      if (!img || !img.naturalWidth || !img.clientWidth) return null;
-      const rect = img.getBoundingClientRect();
-      return {
-        x: Math.round(((event.clientX - rect.left) * img.naturalWidth) / rect.width),
-        y: Math.round(((event.clientY - rect.top) * img.naturalHeight) / rect.height),
-      };
-    },
-
-    onAssistMouseDown(event) {
-      if (event.button !== 0) return;
-      const point = this.assistPagePoint(event);
-      if (!point) return;
-      const box = this.$refs.assistFrame.getBoundingClientRect();
-      this.assistDrag = {
-        active: true,
-        x1: point.x,
-        y1: point.y,
-        sx1: event.clientX - box.left,
-        sy1: event.clientY - box.top,
-        sx2: event.clientX - box.left,
-        sy2: event.clientY - box.top,
-      };
-      event.preventDefault();
-    },
-
-    onAssistMouseMove(event) {
-      if (!this.assistDrag.active) return;
-      const box = this.$refs.assistFrame.getBoundingClientRect();
-      this.assistDrag = {
-        ...this.assistDrag,
-        sx2: event.clientX - box.left,
-        sy2: event.clientY - box.top,
-      };
-    },
-
-    async onAssistMouseUp(event) {
-      if (!this.assistDrag.active) return;
-      const drag = this.assistDrag;
-      this.assistDrag = { ...drag, active: false };
-      const point = this.assistPagePoint(event) || { x: drag.x1, y: drag.y1 };
-      const distance = Math.hypot(point.x - drag.x1, point.y - drag.y1);
-      if (distance < 8) {
-        this.assistTextPoint = { x: point.x, y: point.y }; // 记住最近点击处，供文字输入兜底
-        await this.sendAssistAction("click", { x: point.x, y: point.y });
-      } else {
-        await this.sendAssistAction("drag", { x1: drag.x1, y1: drag.y1, x2: point.x, y2: point.y });
-      }
-    },
-
-    async sendAssistText() {
-      const text = (this.assistText || "").trim();
-      const point = this.assistTextPoint;
-      if (!text) return;
-      if (!point) {
-        ElementPlus.ElMessage.warning("请先在下方画面中点击一次输入框位置，再发送文字");
-        return;
-      }
-      const ok = await this.sendAssistAction("type", { x: point.x, y: point.y, text });
-      if (ok !== false) this.assistText = "";
-    },
-
-    async submitLoginSmsCode() {
-      if (this.smsSubmitting || !this.loginDialog.task) return;
-      const code = (this.smsCode || "").trim();
-      if (!/^\d{4,8}$/.test(code)) {
-        ElementPlus.ElMessage.warning("验证码应为 4-8 位数字");
-        return;
-      }
-      this.smsSubmitting = true;
-      try {
-        await this.api(`/api/tasks/${this.loginDialog.task.id}/verify-code`, {
-          method: "POST",
-          body: { code },
-        });
-        this.smsCode = "";
-        ElementPlus.ElMessage.success("验证码已提交，将自动填入并点击验证");
-      } catch (e) {
-        ElementPlus.ElMessage.error(e.message);
-      } finally {
-        this.smsSubmitting = false;
-      }
-    },
-
-    async sendAssistAction(action, body) {
-      if (this.assistBusy || !this.loginDialog.task) return false;
-      this.assistBusy = true;
-      try {
-        await this.api(`/api/tasks/${this.loginDialog.task.id}/assist/${action}`, { method: "POST", body });
-        this.refreshLoginTask(); // 立刻拉一帧，尽快看到操作结果
-        return true;
-      } catch (e) {
-        ElementPlus.ElMessage.warning(e.message);
-        return false;
-      } finally {
-        this.assistBusy = false;
-      }
+      }, 2000);
     },
 
     stopLoginPolling() {
@@ -1421,49 +1281,17 @@ const app = createApp({
       </template>
     </el-dialog>
 
-    <!-- 扫码登录二维码 + 远程人工协助画面 -->
-    <el-dialog :model-value="loginDialog.visible" title="扫码登录" :width="loginDialog.task && loginDialog.task.assist_frame_url ? '780px' : '380px'"
-               :close-on-click-modal="false" @close="closeLoginDialog">
+    <!-- 扫码登录二维码（本地浏览器模式下，登录页会同时在你本机 Chrome 打开） -->
+    <el-dialog :model-value="loginDialog.visible" title="扫码登录" width="380px" :close-on-click-modal="false"
+               @close="closeLoginDialog">
       <div class="qr-box" v-if="loginDialog.task">
         <div style="font-size:14px">
           {{ platformIcon(loginDialog.task.platform) }} {{ platformName(loginDialog.task.platform) }} · {{ loginDialog.task.account }}
         </div>
-
-        <el-alert v-if="loginDialog.task.waiting_verify_code" type="warning" :closable="false" show-icon style="margin:10px 0"
-                  title="📱 需要短信验证码"
-                  description="抖音登录触发了短信二次验证，请在下方输入手机收到的验证码，提交后会自动填入并点击验证。" />
-        <div v-if="loginDialog.task.waiting_verify_code" class="sms-box">
-          <el-input v-model="smsCode" placeholder="输入手机收到的短信验证码（4-8 位数字）" maxlength="8"
-                    @keyup.enter="submitLoginSmsCode" />
-          <el-button type="primary" :loading="smsSubmitting" @click="submitLoginSmsCode">提交验证码</el-button>
-        </div>
-
         <img v-if="loginDialog.task.qrcode_data_url" :src="loginDialog.task.qrcode_data_url" alt="登录二维码" />
         <div v-else class="qr-spinner"></div>
         <div style="font-size:13px;color:#606266">{{ loginDialog.task.message }}</div>
         <div v-if="loginDialog.task.status === 'failed'" class="error-text">{{ loginDialog.task.error }}</div>
-
-        <template v-if="loginDialog.task.assist_frame_url">
-          <el-alert v-if="loginDialog.task.assist_needs_verify" type="error" :closable="false" show-icon style="margin:12px 0 8px"
-                    title="检测到滑块 / 安全验证"
-                    description="请在下方画面中手动完成：按住滑块拖到缺口处松开，或按提示点击。画面约每秒刷新。" />
-          <div v-else class="assist-tip">
-            服务器页面实时画面（约每秒刷新）——若出现滑块/安全验证，直接在下方画面里拖拽或点击即可人工完成
-          </div>
-          <div class="assist-frame" ref="assistFrame"
-               @mousedown="onAssistMouseDown" @mousemove="onAssistMouseMove" @mouseup="onAssistMouseUp" @mouseleave="onAssistMouseUp">
-            <img ref="assistImg" :src="loginDialog.task.assist_frame_url" alt="登录页面实时画面" draggable="false" />
-            <div v-if="assistDrag.active" class="assist-line" :style="assistLineStyle"></div>
-          </div>
-          <div class="assist-input-row">
-            <el-input v-model="assistText" size="small" placeholder="兜底输入：先点击画面中的输入框，再在此输入文字并发送"
-                      @keyup.enter="sendAssistText" />
-            <el-button size="small" :disabled="assistBusy" @click="sendAssistText">发送文字</el-button>
-          </div>
-          <div v-if="loginDialog.task.status === 'failed'" class="assist-tip">
-            超时时页面停在：<span class="mono">{{ loginDialog.task.assist_page_url || '未知' }}</span>（最后画面如上，可用于判断是被风控拦截还是页面未跳转）
-          </div>
-        </template>
       </div>
       <template #footer>
         <el-button @click="closeLoginDialog">关闭</el-button>

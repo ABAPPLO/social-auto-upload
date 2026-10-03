@@ -17,10 +17,9 @@ from fastapi.responses import FileResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from conf import BASE_DIR
-from utils import web_assist
 from utils.network import check_proxy, get_platform_proxy, load_proxy_exit_state
 
-from . import __version__, assist, media, registry
+from . import __version__, media, registry
 from .registry import LOGIN_MODE_TERMINAL, PublishPayloadError
 from .tasks import manager
 
@@ -212,14 +211,10 @@ async def start_login(platform: str, body: dict) -> dict:
 
     task = manager.create("login", platform, account_name, summary="扫码登录" if not cdp_url else "本地浏览器登录")
     task_id = task["id"]
-    # 支持 ManualAssist 协议的平台（如抖音）附带远程人工协助通道：
-    # 登录等待期间推实时画面，滑块/安全验证可在网页画面里手动完成。
-    # 支持 cdp_url 的平台（如抖音/快手）可改在用户本机 Chrome 里完成登录。
+    # 支持 cdp_url 的平台（如抖音/快手）可改在用户本机 Chrome 里完成登录：
+    # 登录页在本机浏览器新标签页打开，用户原生完成扫码/滑块/短信，服务器直接抓取登录态
     setup_kwargs: dict[str, Any] = {}
-    params = inspect.signature(spec.setup).parameters
-    if "assist" in params:
-        setup_kwargs["assist"] = assist.TaskAssist(task_id)
-    if cdp_url and "cdp_url" in params:
+    if cdp_url and "cdp_url" in inspect.signature(spec.setup).parameters:
         setup_kwargs["cdp_url"] = cdp_url
 
     async def run_login() -> dict:
@@ -587,12 +582,12 @@ def get_task(task_id: str) -> dict:
 
 @router.post("/tasks/{task_id}/verify-code")
 def submit_task_verify_code(task_id: str, body: dict) -> dict:
-    """提交抖音短信验证码（写入 verify_code.txt，由发布/登录循环读取后自动填入提交）。"""
+    """提交抖音发布过程中触发的短信验证码（写入 verify_code.txt，由发布循环读取）。"""
     task = manager.get(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="任务不存在或已被清理")
-    if task["platform"] != "douyin" or task["type"] not in ("upload", "login"):
-        raise _bad_request("只有抖音任务会需要短信验证码")
+    if task["type"] != "upload" or task["platform"] != "douyin":
+        raise _bad_request("只有抖音发布任务会需要短信验证码")
     if task["status"] not in ("running", "pending"):
         raise _bad_request(f"任务已结束（{task['status']}），无需再提交验证码")
     code = str(body.get("code") or "").strip()
@@ -603,71 +598,3 @@ def submit_task_verify_code(task_id: str, body: dict) -> dict:
 
     submit_verify_code(code)
     return {"ok": True, "message": "验证码已提交，发布流程将继续"}
-
-
-# ---------------------------------------------------------------------------
-# 登录远程人工协助：把网页画面上的点击/拖拽转发到 headless 登录页面
-# ---------------------------------------------------------------------------
-
-def _assist_coord(body: dict, key: str) -> float:
-    try:
-        return float(body.get(key))
-    except (TypeError, ValueError):
-        raise _bad_request(f"坐标参数 {key} 不合法") from None
-
-
-async def _run_assist_action(task_id: str, body: dict, action: str) -> dict:
-    task = manager.get(task_id)
-    if task is None:
-        raise HTTPException(status_code=404, detail="任务不存在或已被清理")
-    if task["type"] != "login":
-        raise _bad_request("仅扫码登录任务支持远程画面操作")
-    if task["status"] != "running":
-        raise _bad_request(f"登录任务已结束（{task['status']}），无法再操作")
-    binding = assist.LIVE.get(task_id)
-    page = getattr(binding, "page", None)
-    if page is None:
-        raise _bad_request("当前没有可交互的登录页面（可能正在加载或已跳转），等画面刷新后再试")
-
-    width, height = await web_assist.viewport_size(page)
-    if action == "click":
-        x = web_assist.clamp_coord(_assist_coord(body, "x"), width)
-        y = web_assist.clamp_coord(_assist_coord(body, "y"), height)
-        ok = await web_assist.human_click(page, x, y)
-        label = f"点击 ({x:.0f}, {y:.0f})"
-    elif action == "drag":
-        x1 = web_assist.clamp_coord(_assist_coord(body, "x1"), width)
-        y1 = web_assist.clamp_coord(_assist_coord(body, "y1"), height)
-        x2 = web_assist.clamp_coord(_assist_coord(body, "x2"), width)
-        y2 = web_assist.clamp_coord(_assist_coord(body, "y2"), height)
-        ok = await web_assist.human_drag(page, x1, y1, x2, y2)
-        label = f"拖拽 ({x1:.0f},{y1:.0f}) → ({x2:.0f},{y2:.0f})"
-    else:  # type：先点输入框再键入文字（短信验证码等任意文本的兜底通道）
-        x = web_assist.clamp_coord(_assist_coord(body, "x"), width)
-        y = web_assist.clamp_coord(_assist_coord(body, "y"), height)
-        text = str(body.get("text") or "")[:200]
-        if not text:
-            raise _bad_request("text 不能为空")
-        ok = await web_assist.human_type(page, x, y, text)
-        label = f"输入 \"{text[:20]}\" @ ({x:.0f}, {y:.0f})"
-    if not ok:
-        raise _bad_request("操作发送失败，页面可能正在跳转；等画面刷新后再试")
-    return {"ok": True, "message": f"已发送{label}"}
-
-
-@router.post("/tasks/{task_id}/assist/click")
-async def assist_click(task_id: str, body: dict) -> dict:
-    """在登录实时画面上点击（前端已按原图尺寸换算为页面像素坐标）。"""
-    return await _run_assist_action(task_id, body, action="click")
-
-
-@router.post("/tasks/{task_id}/assist/drag")
-async def assist_drag(task_id: str, body: dict) -> dict:
-    """在登录实时画面上拖拽（滑块验证：从起点拖到终点）。"""
-    return await _run_assist_action(task_id, body, action="drag")
-
-
-@router.post("/tasks/{task_id}/assist/type")
-async def assist_type(task_id: str, body: dict) -> dict:
-    """点击画面指定位置并键入文字（先点输入框再打字的兜底输入通道）。"""
-    return await _run_assist_action(task_id, body, action="type")
